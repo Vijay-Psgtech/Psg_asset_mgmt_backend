@@ -143,6 +143,7 @@ async function seed() {
     admin.name = name;
     admin.password = password;
     admin.role = 'superadmin';
+    admin.institution = null;
     admin.active = true;
     await admin.save();
     console.log(`[seed] using existing superadmin: ${email}`);

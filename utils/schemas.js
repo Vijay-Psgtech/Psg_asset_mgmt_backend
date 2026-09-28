@@ -12,6 +12,7 @@ const registerSchema = z.object({
 const loginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(1),
+  institution: z.string().min(1),
 });
 
 const createAssetSchema = z.object({

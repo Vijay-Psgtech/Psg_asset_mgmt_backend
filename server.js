@@ -32,6 +32,7 @@ async function ensureDefaultUsers() {
     existingSuperAdmin.name = process.env.SEED_NAME || 'Super Admin';
     existingSuperAdmin.password = password;
     existingSuperAdmin.role = 'superadmin';
+    existingSuperAdmin.institution = null;
     existingSuperAdmin.active = true;
     await existingSuperAdmin.save();
     console.log(`[startup] normalized default superadmin ${email}`);
@@ -87,6 +88,6 @@ connectDB()
     listenOn(candidatePorts[0], candidatePorts.slice(1));
   })
   .catch((err) => {
-    console.error('[startup] failed to connect to MongoDB:', err.message);
+    console.error('[startup] failed to initialize:', err.message);
     process.exit(1);
   });
