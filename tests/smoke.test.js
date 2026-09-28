@@ -31,6 +31,12 @@ test('requirement catalog endpoint is mounted and protected', async () => {
   assert.equal(response.body.error, 'UnauthorizedError');
 });
 
+test('institutions endpoint is mounted and protected', async () => {
+  const response = await request(app).get('/api/institutions');
+  assert.equal(response.status, 401);
+  assert.equal(response.body.error, 'UnauthorizedError');
+});
+
 test('new dynamic module endpoints are mounted and protected', async () => {
   for (const path of ['/api/components', '/api/kits', '/api/eulas', '/api/import/assets', '/api/calendar/events', '/api/notifications']) {
     const response = await request(app).get(path);

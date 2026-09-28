@@ -1,4 +1,6 @@
 const User = require('../models/User');
+const Institution = require('../models/Institutions');
+const mongoose = require('mongoose');
 const { ValidationError, ConflictError, NotFoundError } = require('../utils/errors');
 
 const ROLE_MENU_DEFAULTS = {
@@ -28,6 +30,15 @@ function safeUser(user) {
   return user.toSafeJSON();
 }
 
+async function resolveInstitution(institutionId) {
+  if (institutionId === undefined) return undefined;
+  if (institutionId === null || institutionId === '') return null;
+  if (!mongoose.isValidObjectId(institutionId)) throw new ValidationError('Invalid institution');
+  const institution = await Institution.exists({ _id: institutionId, active: true });
+  if (!institution) throw new ValidationError('Institution not found or inactive');
+  return institution._id;
+}
+
 exports.list = async (req, res, next) => {
   try {
     const { search, role, active, deleted } = req.query;
@@ -45,7 +56,7 @@ exports.list = async (req, res, next) => {
 
 exports.create = async (req, res, next) => {
   try {
-    const { name, email, password, role = 'asset_user', menuAccess } = req.body;
+    const { name, email, password, role = 'asset_user', menuAccess, institution } = req.body;
     if (!name || name.trim().length < 2) throw new ValidationError('Name must be at least 2 characters');
     if (!email || !/^\S+@\S+\.\S+$/.test(email)) throw new ValidationError('A valid email is required');
     if (!password || password.length < 8) throw new ValidationError('Password must be at least 8 characters');
@@ -53,12 +64,14 @@ exports.create = async (req, res, next) => {
     if (await User.exists({ email: email.toLowerCase().trim() })) throw new ConflictError('An account with this email already exists');
 
     const resolvedMenuAccess = resolveMenuAccess(role, menuAccess);
+    const resolvedInstitution = await resolveInstitution(institution);
     const user = await User.create({
       name: name.trim(),
       email: email.toLowerCase().trim(),
       password,
       role,
       menuAccess: resolvedMenuAccess,
+      institution: resolvedInstitution,
     });
     res.status(201).json({ user: safeUser(user) });
   } catch (error) {
@@ -93,6 +106,9 @@ exports.update = async (req, res, next) => {
     }
     if (req.body.menuAccess !== undefined) {
       user.menuAccess = resolveMenuAccess(user.role, req.body.menuAccess);
+    }
+    if (req.body.institution !== undefined) {
+      user.institution = await resolveInstitution(req.body.institution);
     }
     if (req.body.active !== undefined) user.active = Boolean(req.body.active);
     if (req.body.password !== undefined) {
