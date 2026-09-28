@@ -31,10 +31,27 @@ test('requirement catalog endpoint is mounted and protected', async () => {
   assert.equal(response.body.error, 'UnauthorizedError');
 });
 
-test('institutions endpoint is mounted and protected', async () => {
-  const response = await request(app).get('/api/institutions');
-  assert.equal(response.status, 401);
-  assert.equal(response.body.error, 'UnauthorizedError');
+test('institutions endpoint is available before login', async () => {
+  const Institution = require('../models/Institutions');
+  const originalFind = Institution.find;
+  Institution.find = () => ({ sort: async () => [{ _id: 'institution-1', name: 'Example Institution' }] });
+
+  try {
+    const response = await request(app).get('/api/institutions');
+    assert.equal(response.status, 200);
+    assert.deepEqual(response.body.institutions, [{ _id: 'institution-1', name: 'Example Institution' }]);
+  } finally {
+    Institution.find = originalFind;
+  }
+});
+
+test('login requires an institution selection', async () => {
+  const response = await request(app)
+    .post('/api/auth/login')
+    .send({ email: 'user@example.com', password: 'Password123' });
+
+  assert.equal(response.status, 400);
+  assert.ok(response.body.details.some((detail) => detail.path === 'institution'));
 });
 
 test('new dynamic module endpoints are mounted and protected', async () => {
@@ -98,7 +115,7 @@ test('login cookie is scoped to the app root so protected API calls keep working
   };
 
   try {
-    await authController.login({ body: { email, password }, headers: {} }, res, () => {});
+    await authController.login({ body: { email, password, institution: 'all' }, headers: {} }, res, () => {});
   } finally {
     User.findOne = originalFindOne;
     AuditLog.create = originalCreate;
@@ -110,6 +127,65 @@ test('login cookie is scoped to the app root so protected API calls keep working
   assert.equal(cookies[0].options.sameSite, 'lax');
   assert.ok(res.payload.accessToken);
   assert.equal(res.payload.user.email, email);
+});
+
+test('login rejects a user when the selected institution does not match', async () => {
+  const User = require('../models/User');
+  const AuditLog = require('../models/AuditLog');
+  const authController = require('../controllers/authController');
+  const originalFindOne = User.findOne;
+  const originalCreate = AuditLog.create;
+  const user = {
+    institution: 'assigned-institution',
+    role: 'admin',
+    comparePassword: async () => true,
+  };
+  User.findOne = () => ({ select: async () => user });
+  AuditLog.create = async () => ({ ok: true });
+  let nextError;
+
+  try {
+    await authController.login(
+      { body: { email: 'user@example.com', password: 'Password123', institution: 'another-institution' }, headers: {} },
+      { cookie() {}, json() {} },
+      (error) => { nextError = error; }
+    );
+  } finally {
+    User.findOne = originalFindOne;
+    AuditLog.create = originalCreate;
+  }
+
+  assert.equal(nextError.status, 401);
+  assert.equal(nextError.message, 'Invalid email, password, or institution');
+});
+
+test('login does not allow regular users to select all institutions', async () => {
+  const User = require('../models/User');
+  const AuditLog = require('../models/AuditLog');
+  const authController = require('../controllers/authController');
+  const originalFindOne = User.findOne;
+  const originalCreate = AuditLog.create;
+  const user = {
+    institution: 'assigned-institution',
+    role: 'admin',
+    comparePassword: async () => true,
+  };
+  User.findOne = () => ({ select: async () => user });
+  AuditLog.create = async () => ({ ok: true });
+  let nextError;
+
+  try {
+    await authController.login(
+      { body: { email: 'user@example.com', password: 'Password123', institution: 'all' }, headers: {} },
+      { cookie() {}, json() {} },
+      (error) => { nextError = error; }
+    );
+  } finally {
+    User.findOne = originalFindOne;
+    AuditLog.create = originalCreate;
+  }
+
+  assert.equal(nextError.status, 401);
 });
 
 test('invalid refresh tokens clear the stale refresh cookie', async () => {

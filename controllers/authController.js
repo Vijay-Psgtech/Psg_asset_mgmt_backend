@@ -32,12 +32,20 @@ const register = asyncHandler(async (req, res) => {
 
 const login = asyncHandler(async (req, res) => {
   const email = req.body.email.trim().toLowerCase();
-  const { password } = req.body;
+  const { password, institution } = req.body;
   const user = await User.findOne({ email, deletedAt: null }).select('+password');
+  const institutionMatches = user && (
+    (institution === 'all' && user.role === 'superadmin') ||
+    (institution !== 'all' && (
+      user.institution
+        ? user.institution.toString() === institution
+        : user.role === 'superadmin'
+    ))
+  );
 
-  if (!user || !(await user.comparePassword(password))) {
+  if (!user || !(await user.comparePassword(password)) || !institutionMatches) {
     await recordAudit({ req, action: 'login_failed', entityType: 'Auth', entityLabel: email });
-    throw new UnauthorizedError('Invalid email or password');
+    throw new UnauthorizedError('Invalid email, password, or institution');
   }
   if (!user.active) throw new UnauthorizedError('Account is disabled'); 
 
