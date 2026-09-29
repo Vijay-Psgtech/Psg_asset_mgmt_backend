@@ -47,7 +47,7 @@ exports.list = async (req, res, next) => {
     if (active !== undefined && active !== 'all') filter.active = active === 'true';
     if (deleted !== undefined && deleted !== 'all') filter.deletedAt = deleted === 'true' ? { $ne: null } : null;
     if (search) filter.$or = [{ name: { $regex: search, $options: 'i' } }, { email: { $regex: search, $options: 'i' } }];
-    const users = await User.find(filter).sort({ createdAt: -1 });
+    const users = await User.find(filter).populate('institution', 'name').sort({ createdAt: -1 });
     res.json({ users: users.map(safeUser), total: users.length });
   } catch (error) {
     next(error);
