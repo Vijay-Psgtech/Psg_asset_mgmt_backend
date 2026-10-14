@@ -36,6 +36,7 @@ const assetSchema = new mongoose.Schema(
 
     location: { type: String, trim: true },
     notes: { type: String, trim: true },
+    institution: { type: mongoose.Schema.Types.ObjectId, ref: 'Institution', default: null, index: true },
 
     currentAssignment: { type: mongoose.Schema.Types.ObjectId, ref: 'Assignment', default: null },
 

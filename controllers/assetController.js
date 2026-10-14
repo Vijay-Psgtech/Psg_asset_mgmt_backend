@@ -24,6 +24,7 @@ const list = asyncHandler(async (req, res) => {
       .sort(sort)
       .skip((pageNum - 1) * limitNum)
       .limit(limitNum)
+      .populate('institution', 'name')
       .populate({ path: 'currentAssignment', select: 'assignedTo checkoutDate dueDate status' }),
     Asset.countDocuments(filter),
   ]);
@@ -35,7 +36,7 @@ const list = asyncHandler(async (req, res) => {
 });
 
 const getById = asyncHandler(async (req, res) => {
-  const asset = await Asset.findById(req.params.id).populate('currentAssignment');
+  const asset = await Asset.findById(req.params.id).populate('institution', 'name').populate('currentAssignment');
   if (!asset) throw new NotFoundError('Asset not found');
 
   const [assignmentHistory, maintenanceHistory] = await Promise.all([

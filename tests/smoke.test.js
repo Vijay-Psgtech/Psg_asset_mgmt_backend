@@ -54,6 +54,14 @@ test('login requires an institution selection', async () => {
   assert.ok(response.body.details.some((detail) => detail.path === 'institution'));
 });
 
+test('asset schema accepts an optional institution reference', () => {
+  const { createAssetSchema } = require('../utils/schemas');
+  const payload = { name: 'Test laptop', category: 'Laptop', institution: '507f1f77bcf86cd799439011' };
+
+  assert.equal(createAssetSchema.safeParse(payload).success, true);
+  assert.equal(createAssetSchema.safeParse({ ...payload, institution: null }).success, true);
+});
+
 test('new dynamic module endpoints are mounted and protected', async () => {
   for (const path of ['/api/components', '/api/kits', '/api/eulas', '/api/import/assets', '/api/calendar/events', '/api/notifications']) {
     const response = await request(app).get(path);

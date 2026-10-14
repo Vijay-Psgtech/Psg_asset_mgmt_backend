@@ -28,6 +28,7 @@ const createAssetSchema = z.object({
   warrantyExpiry: z.string().datetime().optional().or(z.literal('')),
   location: z.string().max(120).optional(),
   notes: z.string().max(2000).optional(),
+  institution: z.string().nullable().optional(),
 });
 
 const updateAssetSchema = createAssetSchema.partial();
