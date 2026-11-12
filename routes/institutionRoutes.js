@@ -1,8 +1,12 @@
 const express = require('express');
 const { requireAuth, requireRole } = require('../middleware/auth');
-const controller = require('../controllers/institutionController');
+const institutionController = require('../controllers/institutionController');
 
 const router = express.Router();
-router.get('/', controller.list);
-router.post('/', requireAuth, requireRole('superadmin'), controller.create);
+
+router.use(requireAuth);
+router.get('/', institutionController.list);
+router.post('/', requireRole('superadmin'), institutionController.create);
+router.patch('/:id', requireRole('superadmin'), institutionController.update);
+
 module.exports = router;

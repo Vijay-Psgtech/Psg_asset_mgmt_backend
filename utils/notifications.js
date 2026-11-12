@@ -20,14 +20,58 @@ function getTransporter() {
   return transporter;
 }
 
+function emailConfigurationIssues() {
+  const issues = [];
+  const port = Number(process.env.SMTP_PORT);
+  if (!process.env.SMTP_HOST) issues.push('SMTP_HOST');
+  if (!process.env.SMTP_PORT || !Number.isInteger(port) || port < 1 || port > 65535) {
+    issues.push('SMTP_PORT (must be a valid port number)');
+  }
+  if (!process.env.MAIL_FROM) issues.push('MAIL_FROM');
+  if (Boolean(process.env.SMTP_USER) !== Boolean(process.env.SMTP_PASSWORD)) {
+    issues.push('SMTP_USER and SMTP_PASSWORD (both must be set together)');
+  }
+  return issues;
+}
+
+function isEmailConfigured() {
+  return emailConfigurationIssues().length === 0;
+}
+
+function passwordResetDeliveryIssues() {
+  const mode = process.env.PASSWORD_RESET_DELIVERY || 'smtp';
+  if (mode === 'console') {
+    return process.env.NODE_ENV === 'production'
+      ? ['PASSWORD_RESET_DELIVERY=console is disabled in production']
+      : [];
+  }
+  if (mode !== 'smtp') return ['PASSWORD_RESET_DELIVERY must be smtp or console'];
+  return emailConfigurationIssues();
+}
+
+function isPasswordResetDeliveryConfigured() {
+  return passwordResetDeliveryIssues().length === 0;
+}
+
 async function sendEmail({ to, subject, text }) {
   const mailer = getTransporter();
-  if (!mailer || !to) return;
+  if (!mailer || !to) return false;
   try {
     await mailer.sendMail({ from: process.env.MAIL_FROM, to, subject, text });
+    return true;
   } catch (err) {
     console.error('[notifications] email delivery failed:', err.message);
+    return false;
   }
+}
+
+async function sendPasswordResetEmail(message) {
+  if ((process.env.PASSWORD_RESET_DELIVERY || 'smtp') === 'console') {
+    if (process.env.NODE_ENV === 'production') return false;
+    console.info(`[password-reset-preview] Development reset link (expires in one hour):\n${message.text}`);
+    return true;
+  }
+  return sendEmail(message);
 }
 
 async function notifyUser({ user, type, title, message, entityType, entityId }) {
@@ -57,4 +101,15 @@ async function notifySafely(callback) {
   }
 }
 
-module.exports = { notifyUser, findUserByPerson, notifyCurrentAssignee, notifySafely, sendEmail };
+module.exports = {
+  notifyUser,
+  findUserByPerson,
+  notifyCurrentAssignee,
+  notifySafely,
+  sendEmail,
+  isEmailConfigured,
+  emailConfigurationIssues,
+  isPasswordResetDeliveryConfigured,
+  passwordResetDeliveryIssues,
+  sendPasswordResetEmail,
+};

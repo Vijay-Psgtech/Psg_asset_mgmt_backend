@@ -1,4 +1,5 @@
 const AuditLog = require('../models/AuditLog');
+const logger = require('./logger');
 
 /**
  * Records an audit trail entry. Never throws - a logging failure should
@@ -6,7 +7,9 @@ const AuditLog = require('../models/AuditLog');
  */
 async function recordAudit({ req, action, entityType, entityId, entityLabel, changes }) {
   try {
+    const activeInstitution = req.institution || req.user?.institution;
     await AuditLog.create({
+      institution: activeInstitution?._id || activeInstitution || undefined,
       action,
       entityType,
       entityId,
@@ -19,7 +22,11 @@ async function recordAudit({ req, action, entityType, entityId, entityLabel, cha
       userAgent: req.headers['user-agent'],
     });
   } catch (err) {
-    console.error('[audit] failed to record entry:', err.message);
+    logger.warn('audit_record_failed', {
+      requestId: req.requestId,
+      errorName: err.name || 'Error',
+      errorCode: err.code,
+    });
   }
 }
 

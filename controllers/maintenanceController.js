@@ -1,6 +1,7 @@
 const Maintenance = require('../models/Maintenance');
 const Asset = require('../models/Asset');
 const { notifyCurrentAssignee, notifySafely } = require('../utils/notifications');
+const { scopeInstitution } = require('../utils/institutionScope');
 
 const normalizeStatus = (value) => {
   if (!value || value === 'all') return null;
@@ -11,7 +12,7 @@ const normalizeStatus = (value) => {
 exports.getMaintenanceRecords = async (req, res, next) => {
   try {
     const { status, type, priority, assetId, search, page = 1, limit = 20 } = req.query;
-    const query = {};
+    const query = scopeInstitution(req, {});
 
     const normalizedStatus = normalizeStatus(status);
     if (normalizedStatus === 'overdue') {
@@ -65,7 +66,7 @@ exports.getMaintenanceRecords = async (req, res, next) => {
 // GET /api/maintenance/:id
 exports.getMaintenanceRecord = async (req, res, next) => {
   try {
-    const record = await Maintenance.findById(req.params.id)
+    const record = await Maintenance.findOne({ _id: req.params.id, ...scopeInstitution(req, {}) })
       .populate('asset')
       .populate('createdBy', 'name')
       .populate('completedBy', 'name');
@@ -86,10 +87,11 @@ exports.createMaintenanceRecord = async (req, res, next) => {
       return res.status(400).json({ message: 'assetId and title are required' });
     }
 
-    const asset = await Asset.findById(assetId);
+    const asset = await Asset.findOne({ _id: assetId, ...scopeInstitution(req, {}) });
     if (!asset) return res.status(404).json({ message: 'Asset not found' });
 
     const record = await Maintenance.create({
+      institution: asset.institution,
       asset: assetId,
       type: type || 'Repair',
       title,
@@ -132,7 +134,7 @@ exports.createMaintenanceRecord = async (req, res, next) => {
 // body: any updatable field, typically { status, notes, cost, completedDate }
 exports.updateMaintenanceRecord = async (req, res, next) => {
   try {
-    const record = await Maintenance.findById(req.params.id).populate('asset');
+    const record = await Maintenance.findOne({ _id: req.params.id, ...scopeInstitution(req, {}) }).populate('asset');
     if (!record) return res.status(404).json({ message: 'Maintenance record not found' });
 
     const editable = ['type', 'title', 'description', 'vendor', 'cost', 'startDate', 'dueDate', 'status', 'priority', 'assignee', 'team', 'recurring', 'notes'];
@@ -182,7 +184,7 @@ exports.updateMaintenanceRecord = async (req, res, next) => {
 // DELETE /api/maintenance/:id
 exports.deleteMaintenanceRecord = async (req, res, next) => {
   try {
-    const record = await Maintenance.findByIdAndDelete(req.params.id);
+    const record = await Maintenance.findOneAndDelete({ _id: req.params.id, ...scopeInstitution(req, {}) });
     if (!record) return res.status(404).json({ message: 'Maintenance record not found' });
     res.json({ message: 'Maintenance record deleted' });
   } catch (err) {

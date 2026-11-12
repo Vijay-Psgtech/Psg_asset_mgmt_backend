@@ -1,10 +1,13 @@
 const Consumable = require('../models/Consumable');
+const { scopeInstitution } = require('../utils/institutionScope');
+const { ForbiddenError } = require('../utils/errors');
+const { paginateDerivedStatus } = require('../utils/paginateDerivedStatus');
 
 // GET /api/consumables?status=Low Stock&search=toner&page=1&limit=20
 exports.getConsumables = async (req, res, next) => {
   try {
     const { status, search, page = 1, limit = 20 } = req.query;
-    const query = {};
+    const query = scopeInstitution(req, {});
 
     if (search) {
       query.$or = [
@@ -13,23 +16,56 @@ exports.getConsumables = async (req, res, next) => {
       ];
     }
 
-    const pageNum = Math.max(1, Number(page) || 1);
-    const limitNum = Math.min(100, Math.max(1, Number(limit) || 20));
-    const items = await Consumable.find(query).sort({ name: 1 });
-
-    let data = items.map((doc) => {
-      const obj = doc.toObject({ virtuals: true });
-      obj.status = doc.computeStatus();
-      return obj;
+    const result = await paginateDerivedStatus({
+      model: Consumable,
+      filter: query,
+      status,
+      page,
+      limit,
+      populate: [{ path: 'institution', select: 'name code' }],
+      computationStages: [
+        {
+          $addFields: {
+            _computedIssued: {
+              $sum: {
+                $map: {
+                  input: { $ifNull: ['$issues', []] },
+                  as: 'issue',
+                  in: '$$issue.quantity',
+                },
+              },
+            },
+          },
+        },
+        {
+          $addFields: {
+            _computedAvailable: { $subtract: [{ $ifNull: ['$totalQty', 0] }, '$_computedIssued'] },
+          },
+        },
+        {
+          $addFields: {
+            _computedStatus: {
+              $switch: {
+                branches: [
+                  { case: { $lte: ['$_computedAvailable', 0] }, then: 'Out of Stock' },
+                  {
+                    case: {
+                      $and: [
+                        { $gt: [{ $ifNull: ['$minQty', 0] }, 0] },
+                        { $lte: ['$_computedAvailable', { $ifNull: ['$minQty', 0] }] },
+                      ],
+                    },
+                    then: 'Low Stock',
+                  },
+                ],
+                default: 'In Stock',
+              },
+            },
+          },
+        },
+      ],
     });
-
-    if (status && status !== 'all') {
-      data = data.filter((c) => c.status === status);
-    }
-
-    const total = data.length;
-    const pagedData = data.slice((pageNum - 1) * limitNum, pageNum * limitNum);
-    res.json({ data: pagedData, pagination: { total, page: pageNum, limit: limitNum, pages: Math.ceil(total / limitNum) } });
+    res.json(result);
   } catch (err) {
     next(err);
   }
@@ -38,7 +74,7 @@ exports.getConsumables = async (req, res, next) => {
 // GET /api/consumables/:id
 exports.getConsumable = async (req, res, next) => {
   try {
-    const consumable = await Consumable.findById(req.params.id);
+    const consumable = await Consumable.findOne({ _id: req.params.id, ...scopeInstitution(req, {}) });
     if (!consumable) return res.status(404).json({ message: 'Consumable not found' });
     res.json(consumable);
   } catch (err) {
@@ -52,7 +88,12 @@ exports.createConsumable = async (req, res, next) => {
     const { name, category, manufacturer, modelNumber, totalQty, minQty, purchaseDate, cost, notes } = req.body;
     if (!name) return res.status(400).json({ message: 'name is required' });
 
+    const tenantScope = scopeInstitution(req, {});
+    const institution = tenantScope.institution || req.body.institution;
+    if (!institution) throw new ForbiddenError('Select an institution before creating consumables');
+
     const consumable = await Consumable.create({
+      institution,
       name,
       category,
       manufacturer,
@@ -80,7 +121,11 @@ exports.updateConsumable = async (req, res, next) => {
       if (req.body[field] !== undefined) updates[field] = req.body[field];
     });
 
-    const consumable = await Consumable.findByIdAndUpdate(req.params.id, updates, { new: true, runValidators: true });
+    const consumable = await Consumable.findOneAndUpdate(
+      { _id: req.params.id, ...scopeInstitution(req, {}) },
+      updates,
+      { new: true, runValidators: true }
+    );
     if (!consumable) return res.status(404).json({ message: 'Consumable not found' });
     res.json(consumable);
   } catch (err) {
@@ -91,7 +136,7 @@ exports.updateConsumable = async (req, res, next) => {
 // DELETE /api/consumables/:id
 exports.deleteConsumable = async (req, res, next) => {
   try {
-    const consumable = await Consumable.findByIdAndDelete(req.params.id);
+    const consumable = await Consumable.findOneAndDelete({ _id: req.params.id, ...scopeInstitution(req, {}) });
     if (!consumable) return res.status(404).json({ message: 'Consumable not found' });
     res.json({ message: 'Consumable deleted' });
   } catch (err) {
@@ -108,7 +153,7 @@ exports.issueConsumable = async (req, res, next) => {
 
     if (!name) return res.status(400).json({ message: 'assignedTo.name is required' });
 
-    const consumable = await Consumable.findById(req.params.id);
+    const consumable = await Consumable.findOne({ _id: req.params.id, ...scopeInstitution(req, {}) });
     if (!consumable) return res.status(404).json({ message: 'Consumable not found' });
 
     const issued = consumable.issues.reduce((sum, i) => sum + i.quantity, 0);

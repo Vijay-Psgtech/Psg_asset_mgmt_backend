@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 
 const auditLogSchema = new mongoose.Schema(
   {
+    institution: { type: mongoose.Schema.Types.ObjectId, ref: 'Institution', index: true },
     action: {
       type: String,
       required: true,
@@ -37,5 +38,6 @@ const auditLogSchema = new mongoose.Schema(
 );
 
 auditLogSchema.index({ createdAt: -1 });
+auditLogSchema.index({ institution: 1, createdAt: -1 });
 
 module.exports = mongoose.model('AuditLog', auditLogSchema);

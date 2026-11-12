@@ -1,9 +1,11 @@
+const mongoose = require('mongoose');
 const Asset = require('../models/Asset'); // ASSUMPTION: has `status` field e.g. Available/Assigned/In Repair/Archived
 const Assignment = require('../models/Assignment');
 const Accessory = require('../models/Accessory');
 const Consumable = require('../models/Consumable');
 const License = require('../models/License');
 const User = require('../models/User');
+const { scopeInstitution } = require('../utils/institutionScope');
 
 // These two are optional — comment out the relevant block below if you don't have them yet.
 let Maintenance;
@@ -23,16 +25,24 @@ try {
 // GET /api/dashboard/summary
 exports.getSummary = async (req, res, next) => {
   try {
+    const assetScope = scopeInstitution(req, {});
+    const assetAggregationScope = { ...assetScope };
+    if (assetAggregationScope.institution) {
+      assetAggregationScope.institution = new mongoose.Types.ObjectId(assetAggregationScope.institution);
+    }
+    const assignmentScope = scopeInstitution(req, {});
+    const institutionScope = scopeInstitution(req, {});
+
     const [totalAssets, statusAgg, activeAssignments, overdueAssignments, totalLicenses, totalAccessories, totalConsumables, totalPeople, categoryAgg] = await Promise.all([
-      Asset.countDocuments(),
-      Asset.aggregate([{ $group: { _id: '$status', count: { $sum: 1 } } }]),
-      Assignment.countDocuments({ status: 'assigned' }),
-      Assignment.countDocuments({ status: { $ne: 'returned' }, dueDate: { $lt: new Date() } }),
-      License.countDocuments(),
-      Accessory.countDocuments(),
-      Consumable.countDocuments(),
-      User.countDocuments({ active: true }),
-      Asset.aggregate([{ $group: { _id: '$category', count: { $sum: 1 } } }, { $sort: { count: -1 } }]),
+      Asset.countDocuments(assetScope),
+      Asset.aggregate([{ $match: assetAggregationScope }, { $group: { _id: '$status', count: { $sum: 1 } } }]),
+      Assignment.countDocuments({ ...assignmentScope, status: 'assigned' }),
+      Assignment.countDocuments({ ...assignmentScope, status: { $ne: 'returned' }, dueDate: { $lt: new Date() } }),
+      License.countDocuments(institutionScope),
+      Accessory.countDocuments(institutionScope),
+      Consumable.countDocuments(institutionScope),
+      User.countDocuments({ ...institutionScope, active: true }),
+      Asset.aggregate([{ $match: assetAggregationScope }, { $group: { _id: '$category', count: { $sum: 1 } } }, { $sort: { count: -1 } }]),
     ]);
 
     const byStatus = statusAgg.reduce((acc, s) => {
@@ -43,7 +53,10 @@ exports.getSummary = async (req, res, next) => {
     let maintenanceDue = null;
     if (Maintenance) {
       // ASSUMPTION: Maintenance docs have a `status` field with an 'Open'/'Scheduled' value
-      maintenanceDue = await Maintenance.countDocuments({ status: { $in: ['Open', 'Scheduled'] } });
+      maintenanceDue = await Maintenance.countDocuments({
+        ...institutionScope,
+        status: { $in: ['Open', 'Scheduled'] },
+      });
     }
 
     res.json({
@@ -69,8 +82,8 @@ exports.getRecentActivity = async (req, res, next) => {
       return res.json({ data: [], note: 'AuditLog model not found — wire this up to your real audit log.' });
     }
 
-    // ASSUMPTION: AuditLog has { action, targetType, targetLabel, performedBy: {name}, createdAt }
-    const logs = await AuditLog.find().sort({ createdAt: -1 }).limit(Number(limit));
+    const query = scopeInstitution(req, {});
+    const logs = await AuditLog.find(query).sort({ createdAt: -1 }).limit(Number(limit));
     res.json({ data: logs });
   } catch (err) {
     next(err);

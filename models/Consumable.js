@@ -22,6 +22,7 @@ const consumableIssueSchema = new mongoose.Schema(
 
 const consumableSchema = new mongoose.Schema(
   {
+    institution: { type: mongoose.Schema.Types.ObjectId, ref: 'Institution', required: true, index: true },
     name: { type: String, required: true, trim: true }, // e.g. "HP 26A Toner"
     category: { type: String, trim: true },
     manufacturer: { type: String, trim: true },

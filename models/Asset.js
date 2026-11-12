@@ -21,7 +21,8 @@ const documentSchema = new mongoose.Schema(
 
 const assetSchema = new mongoose.Schema(
   {
-    assetTag: { type: String, required: true, unique: true, index: true }, // e.g. AST-000123
+    institution: { type: mongoose.Schema.Types.ObjectId, ref: 'Institution', required: true, index: true },
+    assetTag: { type: String, required: true, index: true }, // e.g. AST-000123
     name: { type: String, required: true, trim: true },
     category: { type: String, enum: CATEGORIES, required: true },
     brand: { type: String, trim: true },
@@ -32,29 +33,43 @@ const assetSchema = new mongoose.Schema(
     purchaseDate: { type: Date },
     purchaseCost: { type: Number, min: 0 },
     vendor: { type: String, trim: true },
-    warrantyExpiry: { type: Date },    
+    warrantyExpiry: { type: Date },
 
     location: { type: String, trim: true },
     notes: { type: String, trim: true },
-    institution: { type: mongoose.Schema.Types.ObjectId, ref: 'Institution', default: null, index: true },
 
     currentAssignment: { type: mongoose.Schema.Types.ObjectId, ref: 'Assignment', default: null },
 
     qrCode: { type: String }, // data URL (base64 PNG) generated on creation
     documents: { type: [documentSchema], default: [] },
 
-    createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },  
+    createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   },
   { timestamps: true }
 );
 
+assetSchema.index({ institution: 1, assetTag: 1 }, { unique: true });
 assetSchema.index({ name: 'text', brand: 'text', model: 'text', serialNumber: 'text', assetTag: 'text' });
 
 assetSchema.virtual('isUnderWarranty').get(function isUnderWarranty() {
   return this.warrantyExpiry ? this.warrantyExpiry.getTime() > Date.now() : false;
 });
 
-assetSchema.set('toJSON', { virtuals: true });
+assetSchema.set('toJSON', {
+  virtuals: true,
+  transform: (doc, ret) => {
+    if (doc.institution) {
+      const institutionId = doc.institution._id ? doc.institution._id.toString() : doc.institution.toString();
+      ret.institution = {
+        _id: institutionId,
+        id: institutionId,
+        ...(doc.institution.name ? { name: doc.institution.name } : {}),
+        ...(doc.institution.code ? { code: doc.institution.code } : {}),
+      };
+    }
+    return ret;
+  },
+});
 
 module.exports = mongoose.model('Asset', assetSchema);
 module.exports.CATEGORIES = CATEGORIES;

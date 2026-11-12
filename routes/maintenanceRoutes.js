@@ -8,9 +8,9 @@ const {
   deleteMaintenanceRecord,
 } = require('../controllers/maintenanceController');
 
-const { requireAuth } = require('../middleware/auth');
+const { requireAuth, requireRole } = require('../middleware/auth');
 
-router.use(requireAuth);
+router.use(requireAuth, requireRole('admin', 'superadmin'));
 
 router.get('/', getMaintenanceRecords);
 router.get('/:id', getMaintenanceRecord);

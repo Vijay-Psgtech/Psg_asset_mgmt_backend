@@ -1,8 +1,8 @@
 const express = require('express');
-const { requireAuth } = require('../middleware/auth');
+const { requireAuth, requireRole } = require('../middleware/auth');
 const controller = require('../controllers/kitController');
 const router = express.Router();
-router.use(requireAuth);
+router.use(requireAuth, requireRole('admin', 'superadmin'));
 router.get('/', controller.list);
 router.post('/', controller.create);
 router.patch('/:id', controller.update);

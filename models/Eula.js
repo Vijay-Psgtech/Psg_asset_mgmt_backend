@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 
 const eulaSchema = new mongoose.Schema({
+  institution: { type: mongoose.Schema.Types.ObjectId, ref: 'Institution', required: true, index: true },
   title: { type: String, required: true, trim: true },
   vendor: { type: String, trim: true },
   license: { type: mongoose.Schema.Types.ObjectId, ref: 'License', default: null },

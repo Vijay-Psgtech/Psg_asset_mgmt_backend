@@ -2,6 +2,7 @@ const Asset = require('../models/Asset');
 const Assignment = require('../models/Assignment');
 const License = require('../models/License');
 const Maintenance = require('../models/Maintenance');
+const { scopeInstitution } = require('../utils/institutionScope');
 
 function parseDate(value, fallback) {
   const date = value ? new Date(value) : fallback;
@@ -18,11 +19,13 @@ exports.getCalendarEvents = async (req, res, next) => {
     const requestedTypes = String(req.query.types || 'maintenance,assignment,license,warranty')
       .split(',').map((type) => type.trim()).filter(Boolean);
     const search = String(req.query.search || '').trim();
+    const tenantScope = scopeInstitution(req, {});
     const eventTypes = new Set(requestedTypes);
     const events = [];
 
     if (eventTypes.has('maintenance')) {
       const query = {
+        ...tenantScope,
         $or: [
           { startDate: { $lt: end }, dueDate: { $gte: start } },
           { startDate: { $gte: start, $lt: end }, dueDate: null },
@@ -49,7 +52,7 @@ exports.getCalendarEvents = async (req, res, next) => {
     }
 
     if (eventTypes.has('assignment')) {
-      const records = await Assignment.find({ dueDate: { $gte: start, $lt: end }, status: { $ne: 'returned' } })
+      const records = await Assignment.find({ ...tenantScope, dueDate: { $gte: start, $lt: end }, status: { $ne: 'returned' } })
         .populate('asset', 'name assetTag category').sort({ dueDate: 1 });
       records.forEach((record) => {
         if (search && !`${record.assignedTo?.name || ''} ${record.asset?.name || ''} ${record.asset?.assetTag || ''}`.toLowerCase().includes(search.toLowerCase())) return;
@@ -71,7 +74,7 @@ exports.getCalendarEvents = async (req, res, next) => {
     }
 
     if (eventTypes.has('license')) {
-      const records = await License.find({ expirationDate: { $gte: start, $lt: end } }).sort({ expirationDate: 1 });
+      const records = await License.find({ ...tenantScope, expirationDate: { $gte: start, $lt: end } }).sort({ expirationDate: 1 });
       records.forEach((record) => {
         if (search && !`${record.name} ${record.vendor || ''}`.toLowerCase().includes(search.toLowerCase())) return;
         const status = record.computeStatus();
@@ -81,7 +84,7 @@ exports.getCalendarEvents = async (req, res, next) => {
           title: `License expires: ${record.name}`,
           start: record.expirationDate,
           end: record.expirationDate,
-          allDay: true,
+          allDay: true,  
           status,
           colorKey: status === 'Expired' ? 'overdue' : 'license',
           asset: null,
@@ -92,7 +95,7 @@ exports.getCalendarEvents = async (req, res, next) => {
     }
 
     if (eventTypes.has('warranty')) {
-      const records = await Asset.find({ warrantyExpiry: { $gte: start, $lt: end } }).select('name assetTag category warrantyExpiry').sort({ warrantyExpiry: 1 });
+      const records = await Asset.find({ ...tenantScope, warrantyExpiry: { $gte: start, $lt: end } }).select('name assetTag category warrantyExpiry').sort({ warrantyExpiry: 1 });
       records.forEach((record) => {
         if (search && !`${record.name} ${record.assetTag} ${record.category}`.toLowerCase().includes(search.toLowerCase())) return;
         events.push({

@@ -37,4 +37,19 @@ class ConflictError extends AppError {
   }
 }
 
-module.exports = { AppError, NotFoundError, ValidationError, UnauthorizedError, ForbiddenError, ConflictError };
+class ServiceUnavailableError extends AppError {
+  constructor(message = 'Service unavailable', { expose = false } = {}) {
+    super(message, 503);
+    this.expose = expose;
+  }
+}
+
+module.exports = {
+  AppError,
+  NotFoundError,
+  ValidationError,
+  UnauthorizedError,
+  ForbiddenError,
+  ConflictError,
+  ServiceUnavailableError,
+};

@@ -25,6 +25,7 @@ const accessoryCheckoutSchema = new mongoose.Schema(
 
 const accessorySchema = new mongoose.Schema(
   {
+    institution: { type: mongoose.Schema.Types.ObjectId, ref: 'Institution', required: true, index: true },
     name: { type: String, required: true, trim: true }, // e.g. "USB-C Dock"
     category: { type: String, trim: true },
     manufacturer: { type: String, trim: true },

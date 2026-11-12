@@ -1,10 +1,13 @@
 const Accessory = require('../models/Accessory');
+const { scopeInstitution } = require('../utils/institutionScope');
+const { ForbiddenError } = require('../utils/errors');
+const { paginateDerivedStatus } = require('../utils/paginateDerivedStatus');
 
 // GET /api/accessories?status=Low Stock&search=dock&page=1&limit=20
 exports.getAccessories = async (req, res, next) => {
   try {
     const { status, search, page = 1, limit = 20 } = req.query;
-    const query = {};
+    const query = scopeInstitution(req, {});
 
     if (search) {
       query.$or = [
@@ -13,23 +16,59 @@ exports.getAccessories = async (req, res, next) => {
       ];
     }
 
-    const pageNum = Math.max(1, Number(page) || 1);
-    const limitNum = Math.min(100, Math.max(1, Number(limit) || 20));
-    const items = await Accessory.find(query).sort({ name: 1 });
-
-    let data = items.map((doc) => {
-      const obj = doc.toObject({ virtuals: true });
-      obj.status = doc.computeStatus();
-      return obj;
+    const activeCheckouts = {
+      $filter: {
+        input: { $ifNull: ['$checkouts', []] },
+        as: 'checkout',
+        cond: { $eq: [{ $ifNull: ['$$checkout.checkinDate', null] }, null] },
+      },
+    };
+    const result = await paginateDerivedStatus({
+      model: Accessory,
+      filter: query,
+      status,
+      page,
+      limit,
+      populate: [{ path: 'institution', select: 'name code' }],
+      computationStages: [
+        {
+          $addFields: {
+            _computedCheckedOut: {
+              $sum: {
+                $map: { input: activeCheckouts, as: 'checkout', in: '$$checkout.quantity' },
+              },
+            },
+          },
+        },
+        {
+          $addFields: {
+            _computedAvailable: { $subtract: [{ $ifNull: ['$totalQty', 0] }, '$_computedCheckedOut'] },
+          },
+        },
+        {
+          $addFields: {
+            _computedStatus: {
+              $switch: {
+                branches: [
+                  { case: { $lte: ['$_computedAvailable', 0] }, then: 'Out of Stock' },
+                  {
+                    case: {
+                      $and: [
+                        { $gt: [{ $ifNull: ['$minQty', 0] }, 0] },
+                        { $lte: ['$_computedAvailable', { $ifNull: ['$minQty', 0] }] },
+                      ],
+                    },
+                    then: 'Low Stock',
+                  },
+                ],
+                default: 'In Stock',
+              },
+            },
+          },
+        },
+      ],
     });
-
-    if (status && status !== 'all') {
-      data = data.filter((a) => a.status === status);
-    }
-
-    const total = data.length;
-    const pagedData = data.slice((pageNum - 1) * limitNum, pageNum * limitNum);
-    res.json({ data: pagedData, pagination: { total, page: pageNum, limit: limitNum, pages: Math.ceil(total / limitNum) } });
+    res.json(result);
   } catch (err) {
     next(err);
   }
@@ -38,11 +77,13 @@ exports.getAccessories = async (req, res, next) => {
 // GET /api/accessories/:id
 exports.getAccessory = async (req, res, next) => {
   try {
-    const accessory = await Accessory.findById(req.params.id);
+    const accessory = await Accessory.findOne({ _id: req.params.id, ...scopeInstitution(req, {}) });
     if (!accessory) return res.status(404).json({ message: 'Accessory not found' });
     res.json(accessory);
   } catch (err) {
     next(err);
+
+
   }
 };
 
@@ -52,7 +93,12 @@ exports.createAccessory = async (req, res, next) => {
     const { name, category, manufacturer, modelNumber, totalQty, minQty, purchaseDate, cost, notes } = req.body;
     if (!name) return res.status(400).json({ message: 'name is required' });
 
+    const tenantScope = scopeInstitution(req, {});
+    const institution = tenantScope.institution || req.body.institution;
+    if (!institution) throw new ForbiddenError('Select an institution before creating accessories');
+
     const accessory = await Accessory.create({
+      institution,
       name,
       category,
       manufacturer,
@@ -79,7 +125,11 @@ exports.updateAccessory = async (req, res, next) => {
       if (req.body[field] !== undefined) updates[field] = req.body[field];
     });
 
-    const accessory = await Accessory.findByIdAndUpdate(req.params.id, updates, { new: true, runValidators: true });
+    const accessory = await Accessory.findOneAndUpdate(
+      { _id: req.params.id, ...scopeInstitution(req, {}) },
+      updates,
+      { new: true, runValidators: true }
+    );
     if (!accessory) return res.status(404).json({ message: 'Accessory not found' });
     res.json(accessory);
   } catch (err) {
@@ -90,7 +140,7 @@ exports.updateAccessory = async (req, res, next) => {
 // DELETE /api/accessories/:id
 exports.deleteAccessory = async (req, res, next) => {
   try {
-    const accessory = await Accessory.findByIdAndDelete(req.params.id);
+    const accessory = await Accessory.findOneAndDelete({ _id: req.params.id, ...scopeInstitution(req, {}) });
     if (!accessory) return res.status(404).json({ message: 'Accessory not found' });
     res.json({ message: 'Accessory deleted' });
   } catch (err) {
@@ -103,29 +153,51 @@ exports.deleteAccessory = async (req, res, next) => {
 exports.checkoutAccessory = async (req, res, next) => {
   try {
     const { name, email, department, quantity, notes } = req.body;
-    const qty = Number(quantity) || 1;
+    const activeCheckouts = {
+      $filter: {
+        input: { $ifNull: ['$checkouts', []] },
+        as: 'checkout',
+        cond: { $eq: [{ $ifNull: ['$$checkout.checkinDate', null] }, null] },
+      },
+    };
+    const checkedOutQuantity = {
+      $sum: {
+        $map: {
+          input: activeCheckouts,
+          as: 'checkout',
+          in: { $ifNull: ['$$checkout.quantity', 0] },
+        },
+      },
+    };
+    const accessory = await Accessory.findOneAndUpdate(
+      {
+        _id: req.params.id,
+        ...scopeInstitution(req, {}),
+        $expr: {
+          $gte: [
+            { $subtract: [{ $ifNull: ['$totalQty', 0] }, checkedOutQuantity] },
+            quantity,
+          ],
+        },
+      },
+      {
+        $push: {
+          checkouts: {
+            assignedTo: { name, email, department },
+            quantity,
+            checkedOutBy: req.user?._id,
+            notes,
+          },
+        },
+      },
+      { new: true, runValidators: true }
+    );
 
-    if (!name) return res.status(400).json({ message: 'assignedTo.name is required' });
-
-    const accessory = await Accessory.findById(req.params.id);
-    if (!accessory) return res.status(404).json({ message: 'Accessory not found' });
-
-    const checkedOut = accessory.checkouts
-      .filter((c) => !c.checkinDate)
-      .reduce((sum, c) => sum + c.quantity, 0);
-
-    if (qty > accessory.totalQty - checkedOut) {
+    if (!accessory) {
+      const exists = await Accessory.exists({ _id: req.params.id, ...scopeInstitution(req, {}) });
+      if (!exists) return res.status(404).json({ message: 'Accessory not found' });
       return res.status(409).json({ message: 'Not enough stock available for that quantity' });
     }
-
-    accessory.checkouts.push({
-      assignedTo: { name, email, department },
-      quantity: qty,
-      checkedOutBy: req.user?._id,
-      notes,
-    });
-    await accessory.save();
-
     res.status(201).json(accessory);
   } catch (err) {
     next(err);
@@ -135,19 +207,36 @@ exports.checkoutAccessory = async (req, res, next) => {
 // PATCH /api/accessories/:id/checkouts/:checkoutId/checkin
 exports.checkinAccessory = async (req, res, next) => {
   try {
-    const accessory = await Accessory.findById(req.params.id);
-    if (!accessory) return res.status(404).json({ message: 'Accessory not found' });
-
-    const checkout = accessory.checkouts.id(req.params.checkoutId);
-    if (!checkout) return res.status(404).json({ message: 'Checkout record not found' });
-    if (checkout.checkinDate) {
+    const now = new Date();
+    const accessory = await Accessory.findOneAndUpdate(
+      {
+        _id: req.params.id,
+        ...scopeInstitution(req, {}),
+        checkouts: {
+          $elemMatch: {
+            _id: req.params.checkoutId,
+            $or: [{ checkinDate: { $exists: false } }, { checkinDate: null }],
+          },
+        },
+      },
+      {
+        $set: {
+          updatedAt: now,
+          'checkouts.$.checkinDate': now,
+          'checkouts.$.checkedInBy': req.user?._id,
+          'checkouts.$.updatedAt': now,
+        },
+      },
+      { new: true, runValidators: true }
+    );
+    if (!accessory) {
+      const existing = await Accessory.findOne({ _id: req.params.id, ...scopeInstitution(req, {}) })
+        .select('checkouts');
+      if (!existing) return res.status(404).json({ message: 'Accessory not found' });
+      const checkout = existing.checkouts.id(req.params.checkoutId);
+      if (!checkout) return res.status(404).json({ message: 'Checkout record not found' });
       return res.status(409).json({ message: 'This checkout has already been returned' });
     }
-
-    checkout.checkinDate = new Date();
-    checkout.checkedInBy = req.user?._id;
-    await accessory.save();
-
     res.json(accessory);
   } catch (err) {
     next(err);

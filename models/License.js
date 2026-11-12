@@ -18,13 +18,14 @@ const seatAssignmentSchema = new mongoose.Schema(
     asset: { type: mongoose.Schema.Types.ObjectId, ref: 'Asset' }, // optional: seat tied to a device
     assignedDate: { type: Date, default: Date.now },
     assignedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-    notes: { type: String, trim: true },
+    notes: { type: String, trim: true },   
   },
   { _id: true, timestamps: true }
 );
 
 const licenseSchema = new mongoose.Schema(
   {
+    institution: { type: mongoose.Schema.Types.ObjectId, ref: 'Institution', required: true, index: true },
     name: { type: String, required: true, trim: true }, // e.g. "Adobe Creative Cloud"
     licenseKey: { type: String, trim: true },
     vendor: { type: String, trim: true },

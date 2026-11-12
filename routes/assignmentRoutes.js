@@ -9,11 +9,12 @@ const {
   deleteAssignment,
 } = require('../controllers/assignmentController');
 
-const { requireAuth } = require('../middleware/auth');
+const { requireAuth, requireRole } = require('../middleware/auth');
 
 router.use(requireAuth);
 
 router.get('/my-dashboard', getMyDashboard);
+router.use(requireRole('admin', 'superadmin'));
 router.get('/', getAssignments);
 router.get('/:id', getAssignment);
 router.post('/checkout', checkoutAsset);
