@@ -45,10 +45,23 @@ function fileFilter(req, file, cb) {
   cb(null, true);
 }
 
-const uploadDocument = multer({
+const multerUpload = multer({
   storage,
   fileFilter,
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
 }).single('file');
+
+function uploadDocument(req, res, next) {
+  multerUpload(req, res, (error) => {
+    if (!error) return next();
+    if (error instanceof multer.MulterError) {
+      const message = error.code === 'LIMIT_FILE_SIZE'
+        ? 'File exceeds the 10 MB limit'
+        : 'Invalid file upload';
+      return next(new ValidationError(message, [{ path: 'file', message }]));
+    }
+    next(error);
+  });
+}
 
 module.exports = { uploadDocument, UPLOAD_ROOT };

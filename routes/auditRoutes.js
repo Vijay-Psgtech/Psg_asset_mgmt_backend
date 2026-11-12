@@ -2,6 +2,7 @@ const express = require('express');
 const AuditLog = require('../models/AuditLog');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const asyncHandler = require('../utils/asyncHandler');
+const { scopeInstitution } = require('../utils/institutionScope');
 
 const router = express.Router();
 
@@ -12,7 +13,7 @@ router.get(
   '/',
   asyncHandler(async (req, res) => {
     const { entityType, action, page = 1, limit = 30 } = req.query;
-    const filter = {};
+    const filter = scopeInstitution(req, {});
     if (entityType) filter.entityType = entityType;
     if (action) filter.action = action;
 

@@ -6,6 +6,7 @@ const Consumable = require('../models/Consumable');
 const AssetRequest = require('../models/AssetRequest');
 const Eula = require('../models/Eula');
 const { findUserByPerson, notifySafely, notifyUser } = require('../utils/notifications');
+const { scopeInstitution } = require('../utils/institutionScope');
 
 function escapeRegex(value = '') {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -17,15 +18,16 @@ exports.getMyDashboard = async (req, res, next) => {
     const name = escapeRegex(req.user.name);
     const email = escapeRegex(req.user.email);
     const personMatch = { $or: [{ 'assignedTo.email': new RegExp(`^${email}$`, 'i') }, { 'assignedTo.name': new RegExp(`^${name}$`, 'i') }] };
+    const tenantScope = scopeInstitution(req, {});
 
     const [assignments, licenses, accessories, consumables, allRequestable, requested, eulas] = await Promise.all([
-      Assignment.find(personMatch).populate('asset', 'name assetTag category brand model serialNumber status location warrantyExpiry qrCode').sort({ checkoutDate: -1 }).lean(),
-      License.find({ 'seatAssignments.assignedTo': { $exists: true } }).select('name vendor category expirationDate seatAssignments').lean(),
-      Accessory.find({ 'checkouts.assignedTo': { $exists: true } }).select('name category manufacturer modelNumber checkouts').lean(),
-      Consumable.find({ 'issues.assignedTo': { $exists: true } }).select('name category manufacturer modelNumber issues').lean(),
-      Asset.find({ status: 'available' }).select('name assetTag category brand model serialNumber location status').sort({ createdAt: -1 }).limit(50).lean(),
-      AssetRequest.find({ requester: req.user._id }).populate('asset', 'name assetTag category model location status').sort({ createdAt: -1 }).lean(),
-      Eula.find({ $or: [{ 'assignedTo.email': req.user.email }, { 'assignedTo.name': req.user.name }] }).populate('asset', 'name assetTag').populate('license', 'name vendor').sort({ createdAt: -1 }).lean(),
+      Assignment.find({ ...tenantScope, ...personMatch }).populate('asset', 'name assetTag category brand model serialNumber status location warrantyExpiry qrCode').sort({ checkoutDate: -1 }).lean(),
+      License.find({ ...tenantScope, 'seatAssignments.assignedTo': { $exists: true } }).select('name vendor category expirationDate seatAssignments').lean(),
+      Accessory.find({ ...tenantScope, 'checkouts.assignedTo': { $exists: true } }).select('name category manufacturer modelNumber checkouts').lean(),
+      Consumable.find({ ...tenantScope, 'issues.assignedTo': { $exists: true } }).select('name category manufacturer modelNumber issues').lean(),
+      Asset.find({ ...tenantScope, status: 'available' }).select('name assetTag category brand model serialNumber location status').sort({ createdAt: -1 }).limit(50).lean(),
+      AssetRequest.find({ ...tenantScope, requester: req.user._id }).populate('asset', 'name assetTag category model location status').sort({ createdAt: -1 }).lean(),
+      Eula.find({ ...tenantScope, $or: [{ 'assignedTo.email': req.user.email }, { 'assignedTo.name': req.user.name }] }).populate('asset', 'name assetTag').populate('license', 'name vendor').sort({ createdAt: -1 }).lean(),
     ]);
 
     const matchesPerson = (entry) => {
@@ -67,7 +69,7 @@ exports.getMyDashboard = async (req, res, next) => {
 exports.getAssignments = async (req, res, next) => {
   try {
     const { status, search, page = 1, limit = 20 } = req.query;
-    const query = {};
+    const query = scopeInstitution(req, {});
 
     if (status && status !== 'all') {
       if (status === 'overdue') {
@@ -118,7 +120,7 @@ exports.getAssignments = async (req, res, next) => {
 // GET /api/assignments/:id
 exports.getAssignment = async (req, res, next) => {
   try {
-    const assignment = await Assignment.findById(req.params.id)
+    const assignment = await Assignment.findOne({ _id: req.params.id, ...scopeInstitution(req, {}) })
       .populate('asset')
       .populate('checkedOutBy', 'name')
       .populate('checkedInBy', 'name');
@@ -140,7 +142,7 @@ exports.checkoutAsset = async (req, res, next) => {
       return res.status(400).json({ message: 'assetId and assignedTo.name are required' });
     }
 
-    const asset = await Asset.findById(assetId);
+    const asset = await Asset.findOne({ _id: assetId, ...scopeInstitution(req, {}) });
     if (!asset) return res.status(404).json({ message: 'Asset not found' });
 
     if (asset.status && asset.status !== 'available') {
@@ -148,6 +150,7 @@ exports.checkoutAsset = async (req, res, next) => {
     }
 
     const assignment = await Assignment.create({
+      institution: asset.institution,
       asset: assetId,
       assignedTo,
       checkedOutBy: req.user?._id,
@@ -184,7 +187,7 @@ exports.checkinAsset = async (req, res, next) => {
   try {
     const { conditionIn, notes } = req.body;
 
-    const assignment = await Assignment.findById(req.params.id).populate('asset');
+    const assignment = await Assignment.findOne({ _id: req.params.id, ...scopeInstitution(req, {}) }).populate('asset');
     if (!assignment) return res.status(404).json({ message: 'Assignment not found' });
     if (assignment.status === 'returned') {
       return res.status(409).json({ message: 'This assignment has already been checked in' });
@@ -221,7 +224,7 @@ exports.checkinAsset = async (req, res, next) => {
 // DELETE /api/assignments/:id  (correcting a mis-logged entry, not a normal check-in)
 exports.deleteAssignment = async (req, res, next) => {
   try {
-    const assignment = await Assignment.findByIdAndDelete(req.params.id);
+    const assignment = await Assignment.findOneAndDelete({ _id: req.params.id, ...scopeInstitution(req, {}) });
     if (!assignment) return res.status(404).json({ message: 'Assignment not found' });
     res.json({ message: 'Assignment deleted' });
   } catch (err) {

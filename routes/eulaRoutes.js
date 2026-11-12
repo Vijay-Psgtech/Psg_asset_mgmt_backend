@@ -1,10 +1,10 @@
 const express = require('express');
-const { requireAuth } = require('../middleware/auth');
+const { requireAuth, requireRole } = require('../middleware/auth');
 const controller = require('../controllers/eulaController');
 const router = express.Router();
 router.use(requireAuth);
 router.get('/', controller.list);
-router.post('/', controller.create);
-router.patch('/:id', controller.update);
-router.delete('/:id', controller.remove);
+router.post('/', requireRole('admin', 'superadmin'), controller.create);
+router.patch('/:id', requireRole('admin', 'superadmin'), controller.update);
+router.delete('/:id', requireRole('admin', 'superadmin'), controller.remove);
 module.exports = router;

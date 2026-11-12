@@ -11,6 +11,7 @@ const mongoose = require('mongoose');
 
 const assignmentSchema = new mongoose.Schema(
   {
+    institution: { type: mongoose.Schema.Types.ObjectId, ref: 'Institution', required: true, index: true },
     asset: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Asset',

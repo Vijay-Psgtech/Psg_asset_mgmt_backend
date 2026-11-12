@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 
 const assetRequestSchema = new mongoose.Schema(
   {
+    institution: { type: mongoose.Schema.Types.ObjectId, ref: 'Institution', required: true, index: true },
     asset: { type: mongoose.Schema.Types.ObjectId, ref: 'Asset', required: true, index: true },
     requester: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
     status: { type: String, enum: ['pending', 'approved', 'rejected', 'cancelled'], default: 'pending', index: true },

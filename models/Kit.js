@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 
 const kitSchema = new mongoose.Schema({
+  institution: { type: mongoose.Schema.Types.ObjectId, ref: 'Institution', required: true, index: true },
   name: { type: String, required: true, trim: true },
   category: { type: String, trim: true, default: 'Other' },
   description: { type: String, trim: true },

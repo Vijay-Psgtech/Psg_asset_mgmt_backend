@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const logger = require('../utils/logger');
 
 async function connectDB() {
   const uri = process.env.MONGO_URI;
@@ -7,10 +8,13 @@ async function connectDB() {
   }
   mongoose.set('strictQuery', true);
   await mongoose.connect(uri);
-  console.log(`[db] connected -> ${mongoose.connection.name}`);
+  logger.info('database_connected', { database: mongoose.connection.name });
 
   mongoose.connection.on('error', (err) => {
-    console.error('[db] connection error:', err.message);
+    logger.error('database_connection_error', {
+      errorName: err.name || 'Error',
+      errorCode: err.code,
+    });
   });
 }
 

@@ -10,9 +10,9 @@ const {
   checkinSeat,
 } = require('../controllers/licenseController');
 
-const { requireAuth } = require('../middleware/auth');
+const { requireAuth, requireRole } = require('../middleware/auth');
 
-router.use(requireAuth);
+router.use(requireAuth, requireRole('admin', 'superadmin'));
 
 router.get('/', getLicenses);
 router.get('/:id', getLicense);
