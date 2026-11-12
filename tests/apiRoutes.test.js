@@ -50,6 +50,19 @@ function expectedUnauthenticatedStatus(route) {
   return [401];
 }
 
+test('CORS preflight allows the headers used by the frontend', async () => {
+  const origin = process.env.CLIENT_URL || 'http://localhost:5173';
+  const response = await request(app)
+    .options('/api/auth/login')
+    .set('Origin', origin)
+    .set('Access-Control-Request-Method', 'POST')
+    .set('Access-Control-Request-Headers', 'content-type,x-requested-with');
+
+  assert.equal(response.status, 204);
+  assert.equal(response.headers['access-control-allow-origin'], origin);
+  assert.match(response.headers['access-control-allow-headers'], /x-requested-with/i);
+});
+
 test('all registered API routes are mounted and enforce unauthenticated access behavior', async () => {
   const routes = discoverApiRoutes();
   assert.ok(routes.length >= 80, `Expected a complete API route inventory, found ${routes.length}`);
