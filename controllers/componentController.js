@@ -38,7 +38,7 @@ exports.list = async (req, res, next) => {
 
 exports.create = async (req, res, next) => {
   try {
-    const tenantScope = scopeInstitution(req, {});
+    const tenantScope = scopeInstitution(req, {}, { useCurrentInstitution: true });
     const institution = tenantScope.institution || req.body.institutionId || req.body.institution;
     if (!institution) throw new ForbiddenError('Select an institution before creating components');
     const referenceScope = { ...tenantScope, institution };

@@ -33,7 +33,7 @@ exports.importAssets = async (req, res, next) => {
     if (records.length > 500) {
       throw new ValidationError('Import is limited to 500 assets per request');
     }
-    const tenantFilter = scopeInstitution(req, {});
+    const tenantFilter = scopeInstitution(req, {}, { useCurrentInstitution: true });
     const institutionId = tenantFilter.institution || body.institutionId;
     if (!institutionId) throw new ForbiddenError('Select an institution before importing assets');
 
