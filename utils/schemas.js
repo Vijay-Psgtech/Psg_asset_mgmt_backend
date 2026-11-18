@@ -42,6 +42,7 @@ const resetPasswordSchema = z.object({
 const createAssetSchema = z.object({
   name: z.string().min(1).max(120),
   category: z.enum(CATEGORIES),
+  institutionId: z.string().trim().regex(/^[a-fA-F0-9]{24}$/).optional(),
   brand: z.string().max(80).optional(),
   model: z.string().max(80).optional(),
   serialNumber: z.string().max(120).optional(),
@@ -71,7 +72,7 @@ const assetListQuerySchema = z.object({
   sort: z.string().max(80).optional(),
 });
 
-const updateAssetSchema = createAssetSchema.partial();
+const updateAssetSchema = createAssetSchema.partial().omit({ institutionId: true });
 
 const createAssignmentSchema = z.object({
   asset: z.string().min(1),

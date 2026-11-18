@@ -50,7 +50,7 @@ exports.list = async (req, res, next) => {
 
 exports.create = async (req, res, next) => {
   try {
-    const tenantScope = scopeInstitution(req, {});
+    const tenantScope = scopeInstitution(req, {}, { useCurrentInstitution: true });
     const items = Array.isArray(req.body.items) ? req.body.items : [];
     const institution = tenantScope.institution || req.body.institutionId || req.body.institution;
     if (!institution) throw new ForbiddenError('Select an institution before creating kits');
