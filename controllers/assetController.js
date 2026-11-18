@@ -1,10 +1,11 @@
 const QRCode = require('qrcode');
 const Asset = require('../models/Asset');
+const Institution = require('../models/Institution');
 const Assignment = require('../models/Assignment');
 const Maintenance = require('../models/Maintenance');
 const { nextAssetTag } = require('../utils/assetTag');
 const { recordAudit } = require('../utils/audit');
-const { NotFoundError, ConflictError, ForbiddenError } = require('../utils/errors');
+const { NotFoundError, ConflictError, ForbiddenError, ValidationError } = require('../utils/errors');
 const { scopeInstitution } = require('../utils/institutionScope');
 const asyncHandler = require('../utils/asyncHandler');
 
@@ -119,11 +120,13 @@ const getByTag = asyncHandler(async (req, res) => {
 
 const create = asyncHandler(async (req, res) => {
   const institutionId = req.user?.role === 'superadmin'
-    ? normalizeInstitutionId(req.user.institution) || req.body.institutionId || req.body.institution || req.query.institutionId
+    ? normalizeInstitutionId(req.body.institutionId)
     : normalizeInstitutionId(req.user?.institution);
   if (!institutionId) {
     throw new ForbiddenError('Select an institution before creating assets');
   }
+  const institutionExists = await Institution.exists({ _id: institutionId, status: 'active' });
+  if (!institutionExists) throw new ValidationError('The selected institution is not active or does not exist');
 
   const assetTag = await nextAssetTag({ institutionId });
 
@@ -148,7 +151,7 @@ const update = asyncHandler(async (req, res) => {
 
   const before = asset.toObject();
   Object.assign(asset, req.body);
-  if (req.user?.institution && asset.institution?.toString() !== (req.user.institution._id || req.user.institution).toString()) {
+  if (req.user?.role !== 'superadmin' && req.user?.institution && asset.institution?.toString() !== (req.user.institution._id || req.user.institution).toString()) {
     asset.institution = req.user.institution._id || req.user.institution;
   }
   await asset.save();
