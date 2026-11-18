@@ -259,6 +259,17 @@ const switchInstitution = asyncHandler(async (req, res) => {
 });
 
 const listUserInstitutions = asyncHandler(async (req, res) => {
+  if (req.user.role === 'superadmin') {
+    const institutions = await Institution.find({}).sort({ name: 1 }).lean();
+    return res.json({ institutions: institutions.map((institution) => ({
+      id: institution._id,
+      _id: institution._id,
+      name: institution.name,
+      code: institution.code,
+      status: institution.status || 'active',
+    })) });
+  }
+
   const user = await User.findById(req.user._id).populate('institution institutions');
   const institutions = (user.institutions || []).length ? user.institutions : (user.institution ? [user.institution] : []);
   res.json({ institutions: institutions.map((institution) => ({
