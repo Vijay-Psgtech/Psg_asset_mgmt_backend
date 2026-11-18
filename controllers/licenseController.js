@@ -90,7 +90,7 @@ exports.createLicense = async (req, res, next) => {
       return res.status(400).json({ message: 'name and seats are required' });
     }
 
-    const tenantScope = scopeInstitution(req, {});
+    const tenantScope = scopeInstitution(req, {}, { useCurrentInstitution: true });
     const institution = tenantScope.institution || req.body.institution;
     if (!institution) throw new ForbiddenError('Select an institution before creating licenses');
 

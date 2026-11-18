@@ -88,7 +88,7 @@ exports.createConsumable = async (req, res, next) => {
     const { name, category, manufacturer, modelNumber, totalQty, minQty, purchaseDate, cost, notes } = req.body;
     if (!name) return res.status(400).json({ message: 'name is required' });
 
-    const tenantScope = scopeInstitution(req, {});
+    const tenantScope = scopeInstitution(req, {}, { useCurrentInstitution: true });
     const institution = tenantScope.institution || req.body.institution;
     if (!institution) throw new ForbiddenError('Select an institution before creating consumables');
 

@@ -631,6 +631,32 @@ test('tenant scopes fail closed when a non-superadmin has no active institution'
   assert.equal(ensureInstitutionAccess({ user: { role: 'admin' } }, { institution: null }), false);
 });
 
+test('superadmin scopes include all institutions unless a filter is requested', () => {
+  const { scopeInstitution } = require('../utils/institutionScope');
+  const institutionId = '64f8ff7f2e7f6d0012345678';
+  const user = { role: 'superadmin', institution: institutionId };
+
+  assert.deepEqual(scopeInstitution({ user }, { status: 'available' }), { status: 'available' });
+  assert.deepEqual(
+    scopeInstitution({ user, query: { institutionId } }, {}),
+    { institution: institutionId }
+  );
+  assert.deepEqual(
+    scopeInstitution({ user }, {}, { useCurrentInstitution: true }),
+    { institution: institutionId }
+  );
+});
+
+test('asset creation accepts an institution selection and rejects malformed IDs', () => {
+  const { createAssetSchema, updateAssetSchema } = require('../utils/schemas');
+  const institutionId = '64f8ff7f2e7f6d0012345678';
+  const payload = { name: 'Laptop', category: 'Laptop', institutionId };
+
+  assert.equal(createAssetSchema.parse(payload).institutionId, institutionId);
+  assert.throws(() => createAssetSchema.parse({ ...payload, institutionId: 'invalid' }));
+  assert.equal(updateAssetSchema.parse({ institutionId }).institutionId, undefined);
+});
+
 test('login cannot add an institution that is not already a user membership', async () => {
   const authController = require('../controllers/authController');
   const ownInstitutionId = '64f8ff7f2e7f6d0012345678';

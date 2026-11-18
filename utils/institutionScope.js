@@ -1,14 +1,16 @@
 const { ForbiddenError } = require('./errors');
 
-const getInstitutionId = (req) => {
+const getInstitutionId = (req, options = {}) => {
   if (!req?.user) return null;
   const currentInstitution = req.user.institution;
   if (req.user.role === 'superadmin') {
     return req.query?.institutionId
       || req.body?.institutionId
-      || currentInstitution?._id?.toString?.()
-      || currentInstitution?.toString?.()
-      || currentInstitution
+      || (options.useCurrentInstitution
+        ? currentInstitution?._id?.toString?.()
+          || currentInstitution?.toString?.()
+          || currentInstitution
+        : null)
       || null;
   }
   return currentInstitution?._id?.toString?.() || currentInstitution?.toString?.() || currentInstitution || null;
@@ -18,9 +20,9 @@ const scopeInstitution = (req, query = {}, options = {}) => {
   const scopedQuery = { ...(query || {}) };
   if (!req?.user) throw new ForbiddenError('Authentication required');
 
-  const { includeQueryInstitution = true } = options;
+  const { includeQueryInstitution = true, useCurrentInstitution = false } = options;
   if (req.user.role === 'superadmin') {
-    const institutionId = includeQueryInstitution ? getInstitutionId(req) : null;
+    const institutionId = includeQueryInstitution ? getInstitutionId(req, { useCurrentInstitution }) : null;
     if (institutionId) {
       scopedQuery.institution = institutionId;
     }
