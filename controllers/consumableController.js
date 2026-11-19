@@ -1,6 +1,7 @@
 const Consumable = require('../models/Consumable');
+const Institution = require('../models/Institution');
 const { scopeInstitution } = require('../utils/institutionScope');
-const { ForbiddenError } = require('../utils/errors');
+const { ForbiddenError, ValidationError } = require('../utils/errors');
 const { paginateDerivedStatus } = require('../utils/paginateDerivedStatus');
 
 // GET /api/consumables?status=Low Stock&search=toner&page=1&limit=20
@@ -89,8 +90,11 @@ exports.createConsumable = async (req, res, next) => {
     if (!name) return res.status(400).json({ message: 'name is required' });
 
     const tenantScope = scopeInstitution(req, {}, { useCurrentInstitution: true });
-    const institution = tenantScope.institution || req.body.institution;
+    const institution = tenantScope.institution || req.body.institutionId || req.body.institution;
     if (!institution) throw new ForbiddenError('Select an institution before creating consumables');
+    if (req.user.role === 'superadmin' && !(await Institution.exists({ _id: institution, status: 'active' }))) {
+      throw new ValidationError('The selected institution is not active or does not exist');
+    }
 
     const consumable = await Consumable.create({
       institution,
@@ -120,9 +124,15 @@ exports.updateConsumable = async (req, res, next) => {
     editable.forEach((field) => {
       if (req.body[field] !== undefined) updates[field] = req.body[field];
     });
+    if (req.user.role === 'superadmin' && req.body.institutionId) {
+      if (!(await Institution.exists({ _id: req.body.institutionId, status: 'active' }))) {
+        throw new ValidationError('The selected institution is not active or does not exist');
+      }
+      updates.institution = req.body.institutionId;
+    }
 
     const consumable = await Consumable.findOneAndUpdate(
-      { _id: req.params.id, ...scopeInstitution(req, {}) },
+      { _id: req.params.id, ...scopeInstitution(req, {}, { includeQueryInstitution: false }) },
       updates,
       { new: true, runValidators: true }
     );
