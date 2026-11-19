@@ -43,3 +43,11 @@ test('superadmins can select an institution when creating a user', () => {
   assert.match(superDashboardText, /institutionId:\s*''/, 'The create form should track its institution selection');
   assert.match(superDashboardText, /else await api\.post\('\/users', payload\)/, 'The selected institution should be sent when creating a user');
 });
+
+test('superadmins can select an institution for stock items', () => {
+  const stockModalText = fs.readFileSync(path.join(__dirname, '../../client/src/components/StockItemModal.jsx'), 'utf8');
+
+  assert.match(stockModalText, /user\?\.role === 'superadmin'/, 'The stock modal should detect superadmin users');
+  assert.match(stockModalText, /payload\.institutionId = institutionId/, 'The selected institution should be sent when saving stock items');
+  assert.match(stockModalText, /Select an institution/, 'The institution should be required for superadmin stock items');
+});
