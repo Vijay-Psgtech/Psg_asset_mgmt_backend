@@ -833,12 +833,14 @@ test('document file resolver rejects paths outside the upload directory', async 
   );
 });
 
-test('asset import ignores attacker-controlled storage and tenant fields', async () => {
+test('asset CSV import assigns trusted tenant metadata and generates asset tags and QR codes', async () => {
   const Asset = require('../models/Asset');
   const importController = require('../controllers/importController');
+  const QRCode = require('qrcode');
   const originalSave = Asset.prototype.save;
   const originalFind = Asset.find;
   const originalAggregate = Asset.aggregate;
+  const originalToDataURL = QRCode.toDataURL;
   const institutionId = '64f8ff7f2e7f6d0012345678';
   let responseBody;
 
@@ -848,22 +850,17 @@ test('asset import ignores attacker-controlled storage and tenant fields', async
     lean: async () => [],
   });
   Asset.aggregate = async () => [{ numericSuffix: 0 }];
+  QRCode.toDataURL = async () => 'generated-qr-code';
 
   try {
-    await importController.importAssets(
+    await importController.importCsv(
       {
+        params: { type: 'assets' },
         user: { _id: '64f8ff7f2e7f6d0012345679', role: 'admin', institution: institutionId },
-        body: {
-          institutionId: '64f8ff7f2e7f6d0098765432',
-          assets: [{
-            assetTag: 'AST-TEST-001',
-            name: 'Imported test asset',
-            category: 'Laptop',
-            institution: '64f8ff7f2e7f6d0098765432',
-            documents: [{ filePath: 'C:\\private\\secret.txt' }],
-            createdBy: '64f8ff7f2e7f6d0098765432',
-            qrCode: 'attacker-controlled',
-          }],
+        body: { institutionId: '64f8ff7f2e7f6d0098765432' },
+        file: {
+          originalname: 'assets.csv',
+          buffer: Buffer.from('name,category\nImported test asset,Laptop'),
         },
       },
       {
@@ -876,13 +873,15 @@ test('asset import ignores attacker-controlled storage and tenant fields', async
     Asset.prototype.save = originalSave;
     Asset.find = originalFind;
     Asset.aggregate = originalAggregate;
+    QRCode.toDataURL = originalToDataURL;
   }
 
-  const [asset] = responseBody.assets;
+  const [asset] = responseBody.records;
+  assert.equal(asset.assetTag, 'AST-000001');
   assert.equal(asset.institution.toString(), institutionId);
   assert.equal(asset.createdBy.toString(), '64f8ff7f2e7f6d0012345679');
   assert.deepEqual(asset.documents, []);
-  assert.notEqual(asset.qrCode, 'attacker-controlled');
+  assert.equal(asset.qrCode, 'generated-qr-code');
 });
 
 test('derived-status pagination fetches only the requested page', async () => {

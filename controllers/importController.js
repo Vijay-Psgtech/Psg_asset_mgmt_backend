@@ -1,144 +1,274 @@
 const QRCode = require('qrcode');
 const Asset = require('../models/Asset');
+const Accessory = require('../models/Accessory');
+const Consumable = require('../models/Consumable');
+const License = require('../models/License');
+const Institution = require('../models/Institution');
 const { nextAssetTag } = require('../utils/assetTag');
-const { CATEGORIES, STATUSES } = require('../models/Asset');
+const { parseCsv } = require('../utils/parseCsv');
 const { ValidationError, ConflictError, ForbiddenError } = require('../utils/errors');
 const { scopeInstitution } = require('../utils/institutionScope');
 
-const IMPORTABLE_FIELDS = [
-  'assetTag',
-  'name',
-  'category',
-  'brand',
-  'model',
-  'serialNumber',
-  'status',
-  'purchaseDate',
-  'purchaseCost',
-  'vendor',
-  'warrantyExpiry',
-  'location',
-  'notes',
-];
+const IMPORT_TYPES = {
+  assets: {
+    model: Asset,
+    required: ['name', 'category'],
+    fields: {
+      assetTag: 'string',
+      name: 'string',
+      category: 'string',
+      brand: 'string',
+      model: 'string',
+      serialNumber: 'string',
+      status: 'string',
+      purchaseDate: 'date',
+      purchaseCost: 'number',
+      vendor: 'string',
+      warrantyExpiry: 'date',
+      location: 'string',
+      notes: 'string',
+    },
+  },
+  accessories: {
+    model: Accessory,
+    required: ['name'],
+    fields: {
+      name: 'string',
+      category: 'string',
+      manufacturer: 'string',
+      modelNumber: 'string',
+      totalQty: 'number',
+      minQty: 'number',
+      purchaseDate: 'date',
+      cost: 'number',
+      notes: 'string',
+    },
+  },
+  consumables: {
+    model: Consumable,
+    required: ['name'],
+    fields: {
+      name: 'string',
+      category: 'string',
+      manufacturer: 'string',
+      modelNumber: 'string',
+      totalQty: 'number',
+      minQty: 'number',
+      purchaseDate: 'date',
+      cost: 'number',
+      notes: 'string',
+    },
+  },
+  licenses: {
+    model: License,
+    required: ['name', 'seats'],
+    fields: {
+      name: 'string',
+      licenseKey: 'string',
+      vendor: 'string',
+      category: 'string',
+      seats: 'number',
+      purchaseDate: 'date',
+      expirationDate: 'date',
+      cost: 'number',
+      notes: 'string',
+    },
+  },
+};
 
-exports.importAssets = async (req, res, next) => {
-  let importStage = 'validate_batch';
+function rowValidationError(rowNumber, message, path) {
+  return new ValidationError(`CSV row ${rowNumber}: ${message}`, [
+    { path: path || `row ${rowNumber}`, message },
+  ]);
+}
+
+function convertRow(row, config, rowNumber) {
+  const record = {};
+  for (const [field, type] of Object.entries(config.fields)) {
+    const value = row[field] === undefined ? '' : row[field].trim();
+    if (!value) continue;
+
+    if (type === 'number') {
+      const number = Number(value);
+      if (!Number.isFinite(number)) {
+        throw rowValidationError(rowNumber, `${field} must be a valid number`, field);
+      }
+      record[field] = number;
+    } else {
+      record[field] = value;
+    }
+  }
+
+  for (const field of config.required) {
+    if (record[field] === undefined) {
+      throw rowValidationError(rowNumber, `${field} is required`, field);
+    }
+  }
+  return record;
+}
+
+function getValidationDetails(error) {
+  if (error.name === 'ValidationError') {
+    return Object.values(error.errors || {}).map(({ path, message }) => ({ path, message }));
+  }
+  if (error.name === 'CastError') {
+    return [{ path: error.path, message: error.message }];
+  }
+  return null;
+}
+
+exports.importCsv = async (req, res, next) => {
+  let importStage = 'validate_upload';
   let recordNumber;
   try {
-    const body = req.body || {};
-    const records = Array.isArray(body) ? body : body.assets;
-    if (!Array.isArray(records) || !records.length) {
-      throw new ValidationError('assets must be a non-empty array');
+    const config = IMPORT_TYPES[req.params.type];
+    if (!config) throw new ValidationError('Choose assets, accessories, consumables, or licenses');
+    if (!req.file || !Buffer.isBuffer(req.file.buffer)) {
+      throw new ValidationError('Choose a CSV file to import');
     }
-    if (records.length > 500) {
-      throw new ValidationError('Import is limited to 500 assets per request');
-    }
-    const tenantFilter = scopeInstitution(req, {}, { useCurrentInstitution: true });
-    const institutionId = tenantFilter.institution || body.institutionId;
-    if (!institutionId) throw new ForbiddenError('Select an institution before importing assets');
 
-    const preparedRecords = [];
+    importStage = 'parse_csv';
+    const rows = parseCsv(req.file.buffer.toString('utf8'));
+    if (rows.length < 2) throw new ValidationError('CSV must contain a header and at least one data row');
+    if (rows.length - 1 > 500) throw new ValidationError('Import is limited to 500 records per CSV file');
+
+    const headers = rows[0].map((header) => header.trim());
+    const duplicateHeaders = headers.filter((header, index) => headers.indexOf(header) !== index);
+    if (headers.some((header) => !header)) {
+      throw new ValidationError('CSV headers cannot be empty');
+    }
+    if (duplicateHeaders.length) {
+      throw new ValidationError(`Duplicate CSV header: ${duplicateHeaders[0]}`);
+    }
+    const unknownHeaders = headers.filter((header) => !Object.hasOwn(config.fields, header));
+    if (unknownHeaders.length) {
+      throw new ValidationError(`Unsupported CSV column: ${unknownHeaders[0]}`);
+    }
+    const missingHeaders = config.required.filter((field) => !headers.includes(field));
+    if (missingHeaders.length) {
+      throw new ValidationError(`CSV is missing required column${missingHeaders.length > 1 ? 's' : ''}: ${missingHeaders.join(', ')}`);
+    }
+
+    const records = [];
+    for (const [index, values] of rows.slice(1).entries()) {
+      recordNumber = index + 2;
+      if (values.every((value) => !value.trim())) continue;
+      if (values.length > headers.length) {
+        throw rowValidationError(recordNumber, 'contains more values than the header row');
+      }
+      const row = Object.fromEntries(headers.map((header, column) => [header, values[column] || '']));
+      records.push(convertRow(row, config, recordNumber));
+    }
+    if (!records.length) throw new ValidationError('CSV must contain at least one non-empty data row');
+
+    const tenantFilter = scopeInstitution(req, {}, { useCurrentInstitution: true });
+    const institutionId = tenantFilter.institution;
+    if (!institutionId) throw new ForbiddenError('Select an institution before importing records');
+    if (req.user.role === 'superadmin'
+      && !(await Institution.exists({ _id: institutionId, status: 'active' }))) {
+      throw new ValidationError('The selected institution is not active or does not exist');
+    }
+
+    importStage = 'validate_records';
+    const documents = [];
     const requestedTags = new Set();
     for (const [index, record] of records.entries()) {
-      recordNumber = index + 1;
-      if (
-        !record
-        || typeof record !== 'object'
-        || Array.isArray(record)
-        || typeof record.name !== 'string'
-        || !record.name.trim()
-        || !CATEGORIES.includes(record.category)
-      ) {
-        throw new ValidationError('Each asset requires a name and valid category');
-      }
-      if (record.status && !STATUSES.includes(record.status)) {
-        throw new ValidationError(`Invalid asset status: ${record.status}`);
-      }
-      const importedFields = Object.fromEntries(IMPORTABLE_FIELDS
-        .filter((field) => record[field] !== undefined)
-        .map((field) => [field, record[field]]));
-      if (importedFields.assetTag) {
-        if (typeof importedFields.assetTag !== 'string' || !importedFields.assetTag.trim()) {
-          throw new ValidationError('Asset tags must be non-empty strings');
-        }
-        importedFields.assetTag = importedFields.assetTag.trim();
-        if (requestedTags.has(importedFields.assetTag)) {
-          throw new ConflictError(`Duplicate asset tag in import: ${importedFields.assetTag}`);
-        }
-        requestedTags.add(importedFields.assetTag);
-      }
-      const validationAsset = new Asset({
-        ...importedFields,
+      recordNumber = index + 2;
+      const values = {
+        ...record,
         institution: institutionId,
-        assetTag: importedFields.assetTag || 'AST-000001',
-        createdBy: req.user._id,
-      });
-      await validationAsset.validate();
-      preparedRecords.push(importedFields);
+        ...(req.params.type === 'assets' ? { createdBy: req.user._id } : {}),
+      };
+      if (req.params.type === 'assets') {
+        if (record.assetTag) {
+          if (requestedTags.has(record.assetTag)) {
+            throw new ConflictError(`Duplicate asset tag in CSV: ${record.assetTag}`);
+          }
+          requestedTags.add(record.assetTag);
+        }
+        values.assetTag = record.assetTag || 'AST-000001';
+      }
+
+      const document = new config.model(values);
+      try {
+        await document.validate();
+      } catch (error) {
+        const details = getValidationDetails(error);
+        if (details) {
+          throw new ValidationError(`CSV row ${recordNumber} failed validation`, details);
+        }
+        throw error;
+      }
+      documents.push(document);
     }
 
-    importStage = 'allocate_asset_tags';
-    const firstGeneratedTag = await nextAssetTag({ institutionId });
-    const firstGeneratedNumber = Number(firstGeneratedTag.slice('AST-'.length));
-    if (!Number.isSafeInteger(firstGeneratedNumber) || firstGeneratedNumber < 1) {
-      throw new Error('Could not allocate a valid asset tag sequence');
-    }
+    if (req.params.type === 'assets') {
+      importStage = 'allocate_asset_tags';
+      const firstGeneratedTag = await nextAssetTag({ institutionId });
+      const firstGeneratedNumber = Number(firstGeneratedTag.slice('AST-'.length));
+      if (!Number.isSafeInteger(firstGeneratedNumber) || firstGeneratedNumber < 1) {
+        throw new Error('Could not allocate a valid asset tag sequence');
+      }
+      let nextGeneratedNumber = firstGeneratedNumber;
+      for (const [index, document] of documents.entries()) {
+        if (records[index].assetTag) continue;
+        let candidate;
+        do {
+          candidate = `AST-${String(nextGeneratedNumber).padStart(6, '0')}`;
+          nextGeneratedNumber += 1;
+        } while (requestedTags.has(candidate));
+        requestedTags.add(candidate);
+        document.assetTag = candidate;
+      }
 
-    let nextGeneratedNumber = firstGeneratedNumber;
-    for (const importedFields of preparedRecords) {
-      if (importedFields.assetTag) continue;
-      let candidate;
-      do {
-        candidate = `AST-${String(nextGeneratedNumber).padStart(6, '0')}`;
-        nextGeneratedNumber += 1;
-      } while (requestedTags.has(candidate));
-      requestedTags.add(candidate);
-      importedFields.assetTag = candidate;
-    }
-
-    if (requestedTags.size) {
       importStage = 'check_asset_tag_conflicts';
       const existingAssets = await Asset.find({
         institution: institutionId,
         assetTag: { $in: [...requestedTags] },
       }).select('assetTag').lean();
       if (existingAssets.length) {
-        const duplicates = existingAssets.map((asset) => asset.assetTag);
-        throw new ConflictError(`Asset tags already exist for this institution: ${duplicates.join(', ')}`);
+        throw new ConflictError(`Asset tags already exist for this institution: ${existingAssets.map((asset) => asset.assetTag).join(', ')}`);
       }
     }
 
-    const assets = [];
-    importStage = 'persist_assets';
-    for (const [index, importedFields] of preparedRecords.entries()) {
-      recordNumber = index + 1;
-      importStage = 'prepare_asset';
-      const assetTag = importedFields.assetTag;
-      const asset = new Asset({ ...importedFields, institution: institutionId, assetTag, createdBy: req.user._id });
-      importStage = 'generate_qr_code';
-      asset.qrCode = await QRCode.toDataURL(JSON.stringify({ assetTag, id: asset._id.toString() }), { margin: 1, width: 300 });
-      importStage = 'save_asset';
-      await asset.save();
-      assets.push(asset);
+    importStage = 'save_records';
+    for (const [index, document] of documents.entries()) {
+      recordNumber = index + 2;
+      if (req.params.type === 'assets') {
+        importStage = 'generate_qr_code';
+        document.qrCode = await QRCode.toDataURL(
+          JSON.stringify({ assetTag: document.assetTag, id: document._id.toString() }),
+          { margin: 1, width: 300 }
+        );
+      }
+      importStage = 'save_record';
+      try {
+        await document.save();
+      } catch (error) {
+        if (error.code === 11000 && req.params.type === 'assets') {
+          throw new ConflictError('An asset tag already exists for this institution. Check the CSV and try again.');
+        }
+        const details = getValidationDetails(error);
+        if (details) {
+          throw new ValidationError(`CSV row ${recordNumber} failed validation`, details);
+        }
+        throw error;
+      }
     }
-    importStage = 'respond';
-    res.status(201).json({ imported: assets.length, assets });
+
+    res.status(201).json({
+      type: req.params.type,
+      imported: documents.length,
+      records: documents,
+    });
   } catch (error) {
     error.diagnosticContext = {
-      operation: 'asset_import',
+      operation: 'csv_import',
+      type: req.params.type,
       stage: importStage,
       ...(recordNumber ? { recordNumber } : {}),
     };
-    if (error.name === 'ValidationError') {
-      const details = Object.values(error.errors || {}).map(({ path: field, message }) => ({ path: field, message }));
-      return next(new ValidationError('Imported asset data failed validation', details));
-    }
-    if (error.name === 'CastError') {
-      return next(new ValidationError(`Invalid value for ${error.path}`, [{ path: error.path, message: error.message }]));
-    }
-    if (error.code === 11000) {
-      return next(new ConflictError('An asset tag already exists for this institution. Check the import and try again.'));
-    }
     return next(error);
   }
 };
+
