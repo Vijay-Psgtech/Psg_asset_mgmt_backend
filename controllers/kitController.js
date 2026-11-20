@@ -1,8 +1,9 @@
 const Kit = require('../models/Kit');
 const Component = require('../models/Component');
 const Asset = require('../models/Asset');
+const Institution = require('../models/Institution');
 const { scopeInstitution } = require('../utils/institutionScope');
-const { ForbiddenError, NotFoundError } = require('../utils/errors');
+const { ForbiddenError, NotFoundError, ValidationError } = require('../utils/errors');
 
 async function validateKitReferences(items, tenantScope) {
   const componentIds = [...new Set(items.map((item) => item.component).filter(Boolean).map(String))];
@@ -52,8 +53,13 @@ exports.create = async (req, res, next) => {
   try {
     const tenantScope = scopeInstitution(req, {}, { useCurrentInstitution: true });
     const items = Array.isArray(req.body.items) ? req.body.items : [];
-    const institution = tenantScope.institution || req.body.institutionId || req.body.institution;
+    const institution = req.user.role === 'superadmin'
+      ? req.body.institutionId || tenantScope.institution
+      : tenantScope.institution || req.body.institution;
     if (!institution) throw new ForbiddenError('Select an institution before creating kits');
+    if (!(await Institution.exists({ _id: institution, status: 'active' }))) {
+      throw new ValidationError('The selected institution is not active or does not exist');
+    }
     await validateKitReferences(items, { ...tenantScope, institution });
 
     const payload = {

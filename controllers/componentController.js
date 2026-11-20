@@ -1,7 +1,8 @@
 const Component = require('../models/Component');
 const Asset = require('../models/Asset');
+const Institution = require('../models/Institution');
 const { scopeInstitution } = require('../utils/institutionScope');
-const { ForbiddenError, NotFoundError } = require('../utils/errors');
+const { ForbiddenError, NotFoundError, ValidationError } = require('../utils/errors');
 
 exports.list = async (req, res, next) => {
   try {
@@ -39,8 +40,13 @@ exports.list = async (req, res, next) => {
 exports.create = async (req, res, next) => {
   try {
     const tenantScope = scopeInstitution(req, {}, { useCurrentInstitution: true });
-    const institution = tenantScope.institution || req.body.institutionId || req.body.institution;
+    const institution = req.user.role === 'superadmin'
+      ? req.body.institutionId || tenantScope.institution
+      : tenantScope.institution || req.body.institution;
     if (!institution) throw new ForbiddenError('Select an institution before creating components');
+    if (!(await Institution.exists({ _id: institution, status: 'active' }))) {
+      throw new ValidationError('The selected institution is not active or does not exist');
+    }
     const referenceScope = { ...tenantScope, institution };
     if (req.body.asset && !(await Asset.findOne({ _id: req.body.asset, ...referenceScope }).select('_id'))) {
       throw new NotFoundError('Asset not found');

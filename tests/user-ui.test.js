@@ -51,3 +51,14 @@ test('superadmins can select an institution for stock items', () => {
   assert.match(stockModalText, /payload\.institutionId = institutionId/, 'The selected institution should be sent when saving stock items');
   assert.match(stockModalText, /Select an institution/, 'The institution should be required for superadmin stock items');
 });
+
+test('superadmins can select an institution when creating components or kits', () => {
+  const resourcePageText = fs.readFileSync(path.join(__dirname, '../../client/src/pages/ResourcePage.jsx'), 'utf8');
+  const componentControllerText = fs.readFileSync(path.join(__dirname, '../controllers/componentController.js'), 'utf8');
+  const kitControllerText = fs.readFileSync(path.join(__dirname, '../controllers/kitController.js'), 'utf8');
+
+  assert.match(resourcePageText, /!editingId && user\?\.role === 'superadmin'/, 'The resource form should show the selector to superadmins when creating');
+  assert.match(resourcePageText, /payload\.institutionId = institutionId/, 'The selected institution should be sent when creating');
+  assert.match(componentControllerText, /req\.body\.institutionId \|\| tenantScope\.institution/, 'Component creation should use the selected institution');
+  assert.match(kitControllerText, /req\.body\.institutionId \|\| tenantScope\.institution/, 'Kit creation should use the selected institution');
+});
