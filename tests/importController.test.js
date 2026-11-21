@@ -84,6 +84,50 @@ test('asset CSV imports assign trusted tenant metadata and generate tags and QR 
   assert.equal(savedAsset.qrCode, 'data:image/png;base64,test');
 });
 
+test('asset CSV imports normalize ISO and day-first dates', async () => {
+  const originalSave = Asset.prototype.save;
+  const originalFind = Asset.find;
+  const originalAggregate = Asset.aggregate;
+  const originalToDataURL = QRCode.toDataURL;
+  let savedAsset;
+  Asset.prototype.save = async function save() { savedAsset = this; return this; };
+  Asset.find = () => ({ select() { return this; }, lean: async () => [] });
+  Asset.aggregate = async () => [{ numericSuffix: 0 }];
+  QRCode.toDataURL = async () => 'data:image/png;base64,test';
+
+  try {
+    await importController.importCsv(
+      createRequest(
+        'assets',
+        'name,category,purchaseDate,warrantyExpiry\nLaptop,Laptop,2026-11-13,13-11-2027'
+      ),
+      createResponse(),
+      (error) => { if (error) throw error; }
+    );
+  } finally {
+    Asset.prototype.save = originalSave;
+    Asset.find = originalFind;
+    Asset.aggregate = originalAggregate;
+    QRCode.toDataURL = originalToDataURL;
+  }
+
+  assert.equal(savedAsset.purchaseDate.toISOString(), '2026-11-13T00:00:00.000Z');
+  assert.equal(savedAsset.warrantyExpiry.toISOString(), '2027-11-13T00:00:00.000Z');
+});
+
+test('CSV imports reject impossible dates with a row-specific validation error', async () => {
+  let controllerError;
+  await importController.importCsv(
+    createRequest('assets', 'name,category,purchaseDate\nLaptop,Laptop,31-02-2026'),
+    createResponse(),
+    (error) => { controllerError = error; }
+  );
+
+  assert.ok(controllerError instanceof ValidationError);
+  assert.match(controllerError.message, /CSV row 2: purchaseDate must be a valid date/);
+  assert.equal(controllerError.details[0].path, 'purchaseDate');
+});
+
 test('accessory, consumable, and license CSV files import into their selected models', async () => {
   const models = [
     { type: 'accessories', model: Accessory, csv: 'name,totalQty,minQty,cost\nUSB-C Dock,12,2,49.95' },
