@@ -82,6 +82,29 @@ function rowValidationError(rowNumber, message, path) {
   ]);
 }
 
+function parseCsvDate(value, field, rowNumber) {
+  const isoDate = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  const dayFirstDate = /^(\d{2})-(\d{2})-(\d{4})$/.exec(value);
+  const parts = isoDate
+    ? [Number(isoDate[1]), Number(isoDate[2]), Number(isoDate[3])]
+    : dayFirstDate
+      ? [Number(dayFirstDate[3]), Number(dayFirstDate[2]), Number(dayFirstDate[1])]
+      : null;
+
+  if (!parts) {
+    throw rowValidationError(rowNumber, `${field} must use YYYY-MM-DD or DD-MM-YYYY`, field);
+  }
+
+  const [year, month, day] = parts;
+  const date = new Date(0);
+  date.setUTCFullYear(year, month - 1, day);
+  date.setUTCHours(0, 0, 0, 0);
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) {
+    throw rowValidationError(rowNumber, `${field} must be a valid date`, field);
+  }
+  return date;
+}
+
 function convertRow(row, config, rowNumber) {
   const record = {};
   for (const [field, type] of Object.entries(config.fields)) {
@@ -94,6 +117,8 @@ function convertRow(row, config, rowNumber) {
         throw rowValidationError(rowNumber, `${field} must be a valid number`, field);
       }
       record[field] = number;
+    } else if (type === 'date') {
+      record[field] = parseCsvDate(value, field, rowNumber);
     } else {
       record[field] = value;
     }
