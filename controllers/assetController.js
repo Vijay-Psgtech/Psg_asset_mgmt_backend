@@ -3,10 +3,12 @@ const Asset = require('../models/Asset');
 const Institution = require('../models/Institution');
 const Assignment = require('../models/Assignment');
 const Maintenance = require('../models/Maintenance');
+const CustomField = require('../models/CustomField');
 const { nextAssetTag } = require('../utils/assetTag');
 const { recordAudit } = require('../utils/audit');
 const { NotFoundError, ConflictError, ForbiddenError, ValidationError } = require('../utils/errors');
 const { scopeInstitution } = require('../utils/institutionScope');
+const { normalizeCustomFieldValues } = require('../utils/customFieldValues');
 const asyncHandler = require('../utils/asyncHandler');
 
 const normalizeInstitutionId = (value) => {
@@ -130,8 +132,12 @@ const create = asyncHandler(async (req, res) => {
 
   const assetTag = await nextAssetTag({ institutionId });
 
+  const { customFields: customFieldInput, ...assetData } = req.body;
+  const fieldDefinitions = await CustomField.find({ categories: req.body.category, active: true });
+  const customFields = normalizeCustomFieldValues(fieldDefinitions, customFieldInput || {});
   const asset = new Asset({
-    ...req.body,
+    ...assetData,
+    customFields,
     institution: institutionId,  
     assetTag,
     createdBy: req.user._id,
@@ -150,7 +156,19 @@ const update = asyncHandler(async (req, res) => {
   await ensureTenantAccess(req, asset);
 
   const before = asset.toObject();
-  Object.assign(asset, req.body);
+  const { customFields: customFieldInput, ...assetData } = req.body;
+  Object.assign(asset, assetData);
+  if (customFieldInput !== undefined || (assetData.category && assetData.category !== before.category)) {
+    const fieldDefinitions = await CustomField.find({
+      categories: asset.category,
+      active: true,
+    });
+    const updatedValues = normalizeCustomFieldValues(fieldDefinitions, customFieldInput || {});
+    const submittedKeys = new Set(updatedValues.map((field) => field.key));
+    const knownKeys = new Set(fieldDefinitions.map((field) => field.key));
+    const retainedValues = (asset.customFields || []).filter((field) => !knownKeys.has(field.key) && !submittedKeys.has(field.key));
+    asset.customFields = [...updatedValues, ...retainedValues];
+  }
   if (req.user?.role !== 'superadmin' && req.user?.institution && asset.institution?.toString() !== (req.user.institution._id || req.user.institution).toString()) {
     asset.institution = req.user.institution._id || req.user.institution;
   }

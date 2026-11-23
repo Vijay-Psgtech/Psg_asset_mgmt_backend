@@ -37,6 +37,14 @@ const assetSchema = new mongoose.Schema(
 
     location: { type: String, trim: true },
     notes: { type: String, trim: true },
+    customFields: {
+      type: [{
+        key: { type: String, required: true },
+        label: { type: String, required: true },
+        value: { type: mongoose.Schema.Types.Mixed },
+      }],
+      default: [],
+    },
 
     currentAssignment: { type: mongoose.Schema.Types.ObjectId, ref: 'Assignment', default: null },
 
