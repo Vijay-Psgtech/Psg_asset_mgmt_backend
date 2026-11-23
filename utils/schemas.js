@@ -1,6 +1,7 @@
 const { z } = require('zod');
 const { CATEGORIES, STATUSES } = require('../models/Asset');
 const { TYPES: MAINT_TYPES, STATUSES: MAINT_STATUSES } = require('../models/MaintenanceRecord');
+const customFieldTypes = ['text', 'textarea', 'number', 'date', 'checkbox', 'select'];
 
 const nullableOptionalId = z.union([
   z.string().trim().min(1),
@@ -53,7 +54,37 @@ const createAssetSchema = z.object({
   warrantyExpiry: z.string().datetime().optional().or(z.literal('')),
   location: z.string().max(120).optional(),
   notes: z.string().max(2000).optional(),
+  customFields: z.record(z.string(), z.unknown()).optional(),
 });
+
+const customFieldIdParamSchema = z.object({
+  id: z.string().regex(/^[a-fA-F0-9]{24}$/),
+});
+
+const customFieldListQuerySchema = z.object({
+  category: z.enum(CATEGORIES).optional(),
+});
+
+const customFieldShape = {
+  label: z.string().trim().min(1).max(80),
+  key: z.string().trim().min(1).max(80).regex(/^[a-z][a-z0-9_]*$/),
+  type: z.enum(customFieldTypes),
+  options: z.array(z.string().trim().min(1).max(80)).max(50).optional().default([]),
+  categories: z.array(z.enum(CATEGORIES)).min(1).max(CATEGORIES.length),
+  required: z.boolean().optional().default(false),
+};
+
+const customFieldDefinitionSchema = z.object(customFieldShape);
+const validateCustomFieldDefinition = (schema) => schema.superRefine((field, context) => {
+  if (field.type === 'select' && !field.options.length) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['options'], message: 'Select fields need at least one option' });
+  }
+  if (field.type !== 'select' && field.options.length) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['options'], message: 'Options are only supported for select fields' });
+  }
+});
+const createCustomFieldSchema = validateCustomFieldDefinition(customFieldDefinitionSchema);
+const updateCustomFieldSchema = validateCustomFieldDefinition(customFieldDefinitionSchema);
 
 const assetIdParamSchema = z.object({
   id: z.string().regex(/^[a-fA-F0-9]{24}$/),
@@ -120,6 +151,10 @@ module.exports = {
   forgotPasswordSchema,
   resetPasswordSchema,
   createAssetSchema,
+  customFieldIdParamSchema,
+  customFieldListQuerySchema,
+  createCustomFieldSchema,
+  updateCustomFieldSchema,
   assetIdParamSchema,
   assetTagParamSchema,
   assetListQuerySchema,

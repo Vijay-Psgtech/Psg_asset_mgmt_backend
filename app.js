@@ -27,6 +27,7 @@ const importRoutes = require('./routes/importRoutes');
 const calendarRoutes = require('./routes/calendarRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
 const institutionRoutes = require('./routes/institutionRoutes');
+const customFieldRoutes = require('./routes/customFieldRoutes');
 const { notFoundHandler, errorHandler } = require('./middleware/errorHandler');
 const logger = require('./utils/logger');
 
@@ -145,6 +146,7 @@ app.use('/api/import', importRoutes);
 app.use('/api/calendar', calendarRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/institutions', institutionRoutes);
+app.use('/api/custom-fields', customFieldRoutes);
 
 app.use(notFoundHandler);
 app.use(errorHandler);

@@ -12,6 +12,7 @@
     "backup:test-restore": "node scripts/testBackupRestore.js",
     "migrate:audit-institutions": "node scripts/backfillAuditInstitutions.js",
     "migrate:asset-tag-indexes": "node scripts/migrateAssetTagIndexes.js",
+    "migrate:custom-fields-global": "node scripts/migrateCustomFieldsGlobal.js",
     "test": "node --test tests/**/*.test.js",
     "test:integration": "node --test tests/mongoApi.integration.test.js"
   },
