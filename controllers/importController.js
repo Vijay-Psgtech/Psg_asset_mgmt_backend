@@ -4,6 +4,7 @@ const Accessory = require('../models/Accessory');
 const Consumable = require('../models/Consumable');
 const License = require('../models/License');
 const Institution = require('../models/Institution');
+const Category = require('../models/Category');
 const { nextAssetTag } = require('../utils/assetTag');
 const { parseCsv } = require('../utils/parseCsv');
 const { ValidationError, ConflictError, ForbiddenError } = require('../utils/errors');
@@ -205,6 +206,14 @@ exports.importCsv = async (req, res, next) => {
         ...(req.params.type === 'assets' ? { createdBy: req.user._id } : {}),
       };
       if (req.params.type === 'assets') {
+        const category = await Category.findOne({
+          name: { $regex: `^${String(record.category).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, $options: 'i' },
+          active: true,
+        });
+        if (!category) {
+          throw rowValidationError(recordNumber, `Unknown or inactive asset category: ${record.category}`, 'category');
+        }
+        record.category = category.name;
         if (record.assetTag) {
           if (requestedTags.has(record.assetTag)) {
             throw new ConflictError(`Duplicate asset tag in CSV: ${record.assetTag}`);

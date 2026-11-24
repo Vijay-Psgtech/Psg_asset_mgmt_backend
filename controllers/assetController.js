@@ -4,6 +4,7 @@ const Institution = require('../models/Institution');
 const Assignment = require('../models/Assignment');
 const Maintenance = require('../models/Maintenance');
 const CustomField = require('../models/CustomField');
+const Category = require('../models/Category');
 const { nextAssetTag } = require('../utils/assetTag');
 const { recordAudit } = require('../utils/audit');
 const { NotFoundError, ConflictError, ForbiddenError, ValidationError } = require('../utils/errors');
@@ -129,6 +130,12 @@ const create = asyncHandler(async (req, res) => {
   }
   const institutionExists = await Institution.exists({ _id: institutionId, status: 'active' });
   if (!institutionExists) throw new ValidationError('The selected institution is not active or does not exist');
+  const category = await Category.findOne({
+    name: { $regex: `^${String(req.body.category).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, $options: 'i' },
+    active: true,
+  });
+  if (!category) throw new ValidationError('The selected asset category does not exist or is inactive');
+  req.body.category = category.name;
 
   const assetTag = await nextAssetTag({ institutionId });
 
@@ -157,6 +164,14 @@ const update = asyncHandler(async (req, res) => {
 
   const before = asset.toObject();
   const { customFields: customFieldInput, ...assetData } = req.body;
+  if (assetData.category) {
+    const category = await Category.findOne({
+      name: { $regex: `^${String(assetData.category).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, $options: 'i' },
+      active: true,
+    });
+    if (!category) throw new ValidationError('The selected asset category does not exist or is inactive');
+    assetData.category = category.name;
+  }
   Object.assign(asset, assetData);
   if (customFieldInput !== undefined || (assetData.category && assetData.category !== before.category)) {
     const fieldDefinitions = await CustomField.find({
