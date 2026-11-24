@@ -42,7 +42,7 @@ const resetPasswordSchema = z.object({
 
 const createAssetSchema = z.object({
   name: z.string().min(1).max(120),
-  category: z.enum(CATEGORIES),
+  category: z.string().trim().min(1).max(80),
   institutionId: z.string().trim().regex(/^[a-fA-F0-9]{24}$/).optional(),
   brand: z.string().max(80).optional(),
   model: z.string().max(80).optional(),
@@ -62,7 +62,7 @@ const customFieldIdParamSchema = z.object({
 });
 
 const customFieldListQuerySchema = z.object({
-  category: z.enum(CATEGORIES).optional(),
+  category: z.string().trim().min(1).max(80).optional(),
 });
 
 const customFieldShape = {
@@ -70,7 +70,7 @@ const customFieldShape = {
   key: z.string().trim().min(1).max(80).regex(/^[a-z][a-z0-9_]*$/),
   type: z.enum(customFieldTypes),
   options: z.array(z.string().trim().min(1).max(80)).max(50).optional().default([]),
-  categories: z.array(z.enum(CATEGORIES)).min(1).max(CATEGORIES.length),
+  categories: z.array(z.string().trim().min(1).max(80)).min(1).max(100),
   required: z.boolean().optional().default(false),
 };
 
@@ -96,7 +96,7 @@ const assetTagParamSchema = z.object({
 
 const assetListQuerySchema = z.object({
   search: z.string().trim().max(120).optional().or(z.literal('')),
-  category: z.enum(['all', ...CATEGORIES]).optional().or(z.literal('')),
+  category: z.string().trim().max(80).optional().or(z.literal('')),
   status: z.enum(['all', ...STATUSES]).optional().or(z.literal('')),
   page: z.coerce.number().int().min(1).optional().default(1),
   limit: z.coerce.number().int().min(1).max(100).optional().default(20),

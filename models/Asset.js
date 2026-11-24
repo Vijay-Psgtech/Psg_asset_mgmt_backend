@@ -24,7 +24,7 @@ const assetSchema = new mongoose.Schema(
     institution: { type: mongoose.Schema.Types.ObjectId, ref: 'Institution', required: true, index: true },
     assetTag: { type: String, required: true, index: true }, // e.g. AST-000123
     name: { type: String, required: true, trim: true },
-    category: { type: String, enum: CATEGORIES, required: true },
+    category: { type: String, required: true, trim: true },
     brand: { type: String, trim: true },
     model: { type: String, trim: true },
     serialNumber: { type: String, trim: true, index: true },
