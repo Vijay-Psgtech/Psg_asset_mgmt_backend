@@ -2,41 +2,40 @@ const mongoose = require('mongoose');
 
 async function migrateAssetTagIndexes(collection) {
   let indexes = await collection.indexes();
-  const tenantTagIndex = indexes.find((index) => (
+  const compoundIndexes = indexes.filter((index) => (
     index.key?.institution === 1
     && index.key?.assetTag === 1
-    && index.unique
   ));
-
-  if (!tenantTagIndex) {
-    await collection.createIndex(
-      { institution: 1, assetTag: 1 },
-      { name: 'institution_1_assetTag_1', unique: true }
-    );
+  let changedIndex = compoundIndexes.length > 0;
+  for (const index of compoundIndexes) {
+    await collection.dropIndex(index.name);
     indexes = await collection.indexes();
   }
 
   const globalTagIndex = indexes.find((index) => (
     Object.keys(index.key || {}).length === 1
     && index.key.assetTag === 1
-    && index.unique
   ));
-  let removedGlobalUniqueIndex = false;
-  if (globalTagIndex) {
+  if (globalTagIndex?.unique === false) {
     await collection.dropIndex(globalTagIndex.name);
-    removedGlobalUniqueIndex = true;
+    changedIndex = true;
     indexes = indexes.filter((index) => index.name !== globalTagIndex.name);
   }
 
-  const tagLookupIndex = indexes.find((index) => (
+  const uniqueTagIndex = indexes.find((index) => (
     Object.keys(index.key || {}).length === 1
     && index.key.assetTag === 1
+    && index.unique
   ));
-  if (!tagLookupIndex) {
-    await collection.createIndex({ assetTag: 1 }, { name: 'assetTag_1' });
+  if (!uniqueTagIndex) {
+    await collection.createIndex(
+      { assetTag: 1 },
+      { name: 'assetTag_1', unique: true }
+    );
+    changedIndex = true;
   }
 
-  return { removedGlobalUniqueIndex };
+  return { changedIndex };
 }
 
 async function main() {
@@ -49,7 +48,7 @@ async function main() {
     event: 'asset_tag_indexes_migrated',
     database: mongoose.connection.name,
     ...result,
-    tenantTagUniqueness: 'institution_and_assetTag',
+    globalTagUniqueness: true,
   }));
 }
 

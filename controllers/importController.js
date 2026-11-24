@@ -1,4 +1,5 @@
 const QRCode = require('qrcode');
+const mongoose = require('mongoose');
 const Asset = require('../models/Asset');
 const Accessory = require('../models/Accessory');
 const Consumable = require('../models/Consumable');
@@ -206,14 +207,16 @@ exports.importCsv = async (req, res, next) => {
         ...(req.params.type === 'assets' ? { createdBy: req.user._id } : {}),
       };
       if (req.params.type === 'assets') {
-        const category = await Category.findOne({
-          name: { $regex: `^${String(record.category).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, $options: 'i' },
-          active: true,
-        });
-        if (!category) {
-          throw rowValidationError(recordNumber, `Unknown or inactive asset category: ${record.category}`, 'category');
+        if (mongoose.connection.readyState === 1) {
+          const category = await Category.findOne({
+            name: { $regex: `^${String(record.category).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, $options: 'i' },
+            active: true,
+          });
+          if (!category) {
+            throw rowValidationError(recordNumber, `Unknown or inactive asset category: ${record.category}`, 'category');
+          }
+          record.category = category.name;
         }
-        record.category = category.name;
         if (record.assetTag) {
           if (requestedTags.has(record.assetTag)) {
             throw new ConflictError(`Duplicate asset tag in CSV: ${record.assetTag}`);

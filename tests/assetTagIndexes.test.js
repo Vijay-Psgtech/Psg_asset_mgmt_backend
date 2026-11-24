@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { migrateAssetTagIndexes } = require('../scripts/migrateAssetTagIndexes');
 
-test('asset tag index migration replaces global uniqueness while preserving tenant uniqueness', async () => {
+test('asset tag index migration replaces compound uniqueness with global uniqueness', async () => {
   let indexes = [
     { name: '_id_', key: { _id: 1 }, unique: true },
     { name: 'assetTag_1', key: { assetTag: 1 }, unique: true },
@@ -28,22 +28,17 @@ test('asset tag index migration replaces global uniqueness while preserving tena
 
   const result = await migrateAssetTagIndexes(collection);
 
-  assert.deepEqual(result, { removedGlobalUniqueIndex: true });
-  assert.deepEqual(dropped, ['assetTag_1']);
-  assert.deepEqual(created, [{ key: { assetTag: 1 }, options: { name: 'assetTag_1' } }]);
-  assert.ok(indexes.some((index) => index.unique && index.key.institution === 1 && index.key.assetTag === 1));
-  assert.ok(indexes.some((index) => !index.unique && index.key.assetTag === 1 && Object.keys(index.key).length === 1));
+  assert.deepEqual(result, { changedIndex: true });
+  assert.deepEqual(dropped, ['institution_1_assetTag_1']);
+  assert.deepEqual(created, []);
+  assert.ok(indexes.some((index) => index.unique && index.key.assetTag === 1 && Object.keys(index.key).length === 1));
+  assert.ok(!indexes.some((index) => index.key.institution === 1));
 });
 
 test('asset tag index migration is safe to rerun after completion', async () => {
   let indexes = [
     { name: '_id_', key: { _id: 1 }, unique: true },
-    { name: 'assetTag_1', key: { assetTag: 1 }, unique: false },
-    {
-      name: 'institution_1_assetTag_1',
-      key: { institution: 1, assetTag: 1 },
-      unique: true,
-    },
+    { name: 'assetTag_1', key: { assetTag: 1 }, unique: true },
   ];
   let mutationCount = 0;
   const collection = {
@@ -54,6 +49,6 @@ test('asset tag index migration is safe to rerun after completion', async () => 
 
   const result = await migrateAssetTagIndexes(collection);
 
-  assert.deepEqual(result, { removedGlobalUniqueIndex: false });
+  assert.deepEqual(result, { changedIndex: false });
   assert.equal(mutationCount, 0);
 });

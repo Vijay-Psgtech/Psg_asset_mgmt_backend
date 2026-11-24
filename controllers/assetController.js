@@ -5,7 +5,7 @@ const Assignment = require('../models/Assignment');
 const Maintenance = require('../models/Maintenance');
 const CustomField = require('../models/CustomField');
 const Category = require('../models/Category');
-const { nextAssetTag } = require('../utils/assetTag');
+const { nextAvailableAssetTag } = require('../utils/assetTag');
 const { recordAudit } = require('../utils/audit');
 const { NotFoundError, ConflictError, ForbiddenError, ValidationError } = require('../utils/errors');
 const { scopeInstitution } = require('../utils/institutionScope');
@@ -137,7 +137,7 @@ const create = asyncHandler(async (req, res) => {
   if (!category) throw new ValidationError('The selected asset category does not exist or is inactive');
   req.body.category = category.name;
 
-  const assetTag = await nextAssetTag({ institutionId });
+  let assetTag = await nextAvailableAssetTag({ institutionId });
 
   const { customFields: customFieldInput, ...assetData } = req.body;
   const fieldDefinitions = await CustomField.find({ categories: req.body.category, active: true });
@@ -151,7 +151,24 @@ const create = asyncHandler(async (req, res) => {
   });
   asset.qrCode = await QRCode.toDataURL(JSON.stringify({ assetTag, id: asset._id.toString() }), { margin: 1, width: 300 });
 
-  await asset.save();
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      await asset.save();
+      break;
+    } catch (error) {
+      if (error?.code !== 11000 || attempt === 4) throw error;
+      const match = /^AST-(\d+)$/.exec(assetTag);
+      if (!match) throw error;
+      const candidateNumber = Number(match[1]) + 1;
+      assetTag = `AST-${String(candidateNumber).padStart(6, '0')}`;
+      while (await Asset.exists({ assetTag })) {
+        const nextNumber = Number(assetTag.slice(4)) + 1;
+        assetTag = `AST-${String(nextNumber).padStart(6, '0')}`;
+      }
+      asset.assetTag = assetTag;
+      asset.qrCode = await QRCode.toDataURL(JSON.stringify({ assetTag, id: asset._id.toString() }), { margin: 1, width: 300 });
+    }
+  }
   await recordAudit({ req, action: 'create', entityType: 'Asset', entityId: asset._id, entityLabel: asset.assetTag, changes: { after: asset.toObject() } });
 
   res.status(201).json({ asset });

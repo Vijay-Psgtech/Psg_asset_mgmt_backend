@@ -22,7 +22,7 @@ const documentSchema = new mongoose.Schema(
 const assetSchema = new mongoose.Schema(
   {
     institution: { type: mongoose.Schema.Types.ObjectId, ref: 'Institution', required: true, index: true },
-    assetTag: { type: String, required: true, index: true }, // e.g. AST-000123
+    assetTag: { type: String, required: true }, // e.g. AST-000123
     name: { type: String, required: true, trim: true },
     category: { type: String, required: true, trim: true },
     brand: { type: String, trim: true },
@@ -56,7 +56,7 @@ const assetSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-assetSchema.index({ institution: 1, assetTag: 1 }, { unique: true });
+assetSchema.index({ assetTag: 1 }, { unique: true });
 assetSchema.index({ name: 'text', brand: 'text', model: 'text', serialNumber: 'text', assetTag: 'text' });
 
 assetSchema.virtual('isUnderWarranty').get(function isUnderWarranty() {

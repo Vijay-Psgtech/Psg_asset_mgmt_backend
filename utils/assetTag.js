@@ -2,13 +2,11 @@ const Asset = require('../models/Asset');
 
 /**
  * Generates the next sequential asset tag, e.g. AST-000001, AST-000002 ...
- * Looks at the highest existing numeric suffix within the current institution.
+ * Looks at the highest existing numeric suffix across all institutions.
  */
 async function nextAssetTag({ institutionId } = {}) {
   const filter = { assetTag: /^AST-\d+$/ };
-  if (institutionId) {
-    filter.institution = institutionId;
-  }
+  void institutionId;
 
   const [last] = await Asset.aggregate([
     { $match: filter },
@@ -31,4 +29,18 @@ async function nextAssetTag({ institutionId } = {}) {
   return `AST-${String(nextNum).padStart(6, '0')}`;
 }
 
-module.exports = { nextAssetTag };
+async function nextAvailableAssetTag({ institutionId } = {}) {
+  let candidate = await nextAssetTag({ institutionId });
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const filter = { assetTag: candidate };
+    void institutionId;
+    if (!(await Asset.exists(filter))) return candidate;
+
+    const match = /^AST-(\d+)$/.exec(candidate);
+    if (!match) return candidate;
+    candidate = `AST-${String(Number(match[1]) + 1).padStart(6, '0')}`;
+  }
+  throw new Error('Could not allocate a unique asset tag');
+}
+
+module.exports = { nextAssetTag, nextAvailableAssetTag };

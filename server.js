@@ -1,4 +1,5 @@
 require('dotenv').config();
+const mongoose = require('mongoose');
 const { configureJwtSecrets } = require('./utils/jwtSecrets');
 const logger = require('./utils/logger');
 
@@ -6,6 +7,7 @@ configureJwtSecrets();
 
 const app = require('./app');
 const connectDB = require('./config/db');
+const { migrateAssetTagIndexes } = require('./scripts/migrateAssetTagIndexes');
 
 if (!process.env.MONGO_URI) {
   process.env.MONGO_URI = 'mongodb://127.0.0.1:27017/asset-manager';
@@ -38,7 +40,11 @@ function listenOn(port, ports) {
 }
 
 connectDB()
-  .then(() => listenOn(candidatePorts[0], candidatePorts.slice(1)))
+  .then(async () => {
+    const migration = await migrateAssetTagIndexes(mongoose.connection.collection('assets'));
+    logger.info('asset_tag_indexes_migrated', migration);
+    listenOn(candidatePorts[0], candidatePorts.slice(1));
+  })
   .catch((err) => {
     logger.error('database_startup_failed', { errorName: err.name || 'Error', errorCode: err.code });
     process.exit(1);
