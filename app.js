@@ -28,6 +28,7 @@ const calendarRoutes = require('./routes/calendarRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
 const institutionRoutes = require('./routes/institutionRoutes');
 const customFieldRoutes = require('./routes/customFieldRoutes');
+const categoryRoutes = require('./routes/categoryRoutes');
 const { notFoundHandler, errorHandler } = require('./middleware/errorHandler');
 const logger = require('./utils/logger');
 
@@ -147,6 +148,7 @@ app.use('/api/calendar', calendarRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/institutions', institutionRoutes);
 app.use('/api/custom-fields', customFieldRoutes);
+app.use('/api/categories', categoryRoutes);
 
 app.use(notFoundHandler);
 app.use(errorHandler);
