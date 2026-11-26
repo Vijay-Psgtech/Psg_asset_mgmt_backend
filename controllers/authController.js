@@ -111,11 +111,15 @@ const login = asyncHandler(async (req, res) => {
   }
   if (!user.active) throw new UnauthorizedError('Account is disabled');
 
-  const { institution, institutions } = await resolveUserInstitution(user, institutionId);
-  user.institution = institution ? institution._id : null;
-  user.institutions = institutions.map((item) => item._id || item.id);
-  if (institution && typeof user.save === 'function') {
-    await user.save();
+  if (user.role === 'superadmin') {
+    user.institution = null;
+  } else {
+    const { institution, institutions } = await resolveUserInstitution(user, institutionId);
+    user.institution = institution ? institution._id : null;
+    user.institutions = institutions.map((item) => item._id || item.id);
+    if (institution && typeof user.save === 'function') {
+      await user.save();
+    }
   }
 
   const accessToken = signAccessToken(user);
@@ -217,12 +221,25 @@ const refresh = asyncHandler(async (req, res) => {
     throw new UnauthorizedError('Refresh token no longer valid');
   }
 
-  const preferredInstitution = payload.institution || user.institution?._id?.toString?.() || null;
-  const { institution, institutions } = await resolveUserInstitution(user, preferredInstitution);
-  user.institution = institution ? institution._id : null;
-  user.institutions = institutions.map((item) => item._id || item.id);
-  if (typeof user.save === 'function') {
-    await user.save();
+  if (user.role === 'superadmin') {
+    const selectedInstitutionId = Object.prototype.hasOwnProperty.call(payload, 'institution')
+      ? payload.institution
+      : null;
+    if (selectedInstitutionId) {
+      const institution = await Institution.findById(selectedInstitutionId).lean();
+      if (!institution) throw new ValidationError('Institution not found');
+      user.institution = institution._id;
+    } else {
+      user.institution = null;
+    }
+  } else {
+    const preferredInstitution = payload.institution || user.institution?._id?.toString?.() || null;
+    const { institution, institutions } = await resolveUserInstitution(user, preferredInstitution);
+    user.institution = institution ? institution._id : null;
+    user.institutions = institutions.map((item) => item._id || item.id);
+    if (typeof user.save === 'function') {
+      await user.save();
+    }
   }
 
   const accessToken = signAccessToken(user);
@@ -234,6 +251,22 @@ const refresh = asyncHandler(async (req, res) => {
 
 const switchInstitution = asyncHandler(async (req, res) => {
   const { institutionId } = req.body || {};
+
+  if (req.user.role === 'superadmin') {
+    if (institutionId === undefined || institutionId === null || institutionId === '') {
+      req.user.institution = null;
+    } else {
+      const institution = await Institution.findById(institutionId).lean();
+      if (!institution) throw new ValidationError('Institution not found');
+      req.user.institution = institution._id;
+    }
+
+    const accessToken = signAccessToken(req.user);
+    const refreshToken = signRefreshToken(req.user);
+    res.cookie(REFRESH_COOKIE, refreshToken, cookieOpts());
+    return res.json({ accessToken, user: req.user.toSafeJSON() });
+  }
+
   if (!institutionId) throw new ValidationError('Institution is required');
 
   const allowedInstitutionIds = (req.user.institutions || []).map((institution) => institution?._id?.toString?.() || institution?.toString?.() || '');

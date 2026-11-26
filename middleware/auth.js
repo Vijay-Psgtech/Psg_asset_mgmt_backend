@@ -12,9 +12,13 @@ async function requireAuth(req, res, next) {
     const user = await User.findById(payload.sub).populate('institution institutions');
     if (!user || !user.active) throw new UnauthorizedError('Account not found or disabled');
 
-    const institutionId = payload.institution || (user.institution ? user.institution._id?.toString?.() || user.institution.toString() : null);
-    if (institutionId && !user.institution) {
-      user.institution = institutionId;
+    if (user.role === 'superadmin' && Object.prototype.hasOwnProperty.call(payload, 'institution')) {
+      user.institution = payload.institution || null;
+    } else {
+      const institutionId = payload.institution || (user.institution ? user.institution._id?.toString?.() || user.institution.toString() : null);
+      if (institutionId && !user.institution) {
+        user.institution = institutionId;
+      }
     }
 
     if (user.institution && typeof user.institution === 'object' && user.institution._id && !user.institutions?.some((item) => item._id?.toString() === user.institution._id.toString())) {
