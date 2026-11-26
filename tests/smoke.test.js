@@ -292,10 +292,11 @@ test('user records retain assigned menu access permissions', async () => {
   assert.ok(User.schema.path('menuAccess'));
 });
 
-test('login cookie is scoped to the app root so protected API calls keep working', async () => {
+test('superadmin login starts in the all-institutions view without changing account assignment', async () => {
   const User = require('../models/User');
   const AuditLog = require('../models/AuditLog');
   const authController = require('../controllers/authController');
+  const { verifyAccessToken } = require('../utils/tokens');
 
   process.env.JWT_ACCESS_SECRET = process.env.JWT_ACCESS_SECRET || 'test-access-secret';
   process.env.JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'test-refresh-secret';
@@ -304,16 +305,19 @@ test('login cookie is scoped to the app root so protected API calls keep working
   const originalCreate = AuditLog.create;
   const email = 'cookie.scope@example.com';
   const password = 'Pass12345';
+  let saveCalls = 0;
 
   const user = {
     _id: 'user-1',
     email,
     active: true,
     role: 'superadmin',
+    institution: '64f8ff7f2e7f6d0012345678',
+    institutions: ['64f8ff7f2e7f6d0012345678'],
     refreshTokenVersion: 1,
     comparePassword: async () => true,
-    toSafeJSON: () => ({ id: 'user-1', email, role: 'superadmin' }),
-    save: async () => {},
+    toSafeJSON() { return { id: 'user-1', email, role: 'superadmin', institution: this.institution }; },
+    save: async () => { saveCalls += 1; },
   };
 
   user.select = async () => user;
@@ -343,6 +347,153 @@ test('login cookie is scoped to the app root so protected API calls keep working
   assert.equal(cookies[0].options.sameSite, 'lax');
   assert.ok(res.payload.accessToken);
   assert.equal(res.payload.user.email, email);
+  assert.equal(res.payload.user.institution, null);
+  assert.equal(verifyAccessToken(res.payload.accessToken).institution, null);
+  assert.equal(saveCalls, 0);
+  assert.equal(user.institutions[0], '64f8ff7f2e7f6d0012345678');
+});
+
+test('superadmin can switch between an institution and all institutions without persisting the view', async () => {
+  const Institution = require('../models/Institution');
+  const authController = require('../controllers/authController');
+  const { verifyAccessToken } = require('../utils/tokens');
+  const mongoose = require('mongoose');
+  const originalFindById = Institution.findById;
+  const originalAccessSecret = process.env.JWT_ACCESS_SECRET;
+  const originalRefreshSecret = process.env.JWT_REFRESH_SECRET;
+  const institutionId = '64f8ff7f2e7f6d0012345678';
+  const institution = { _id: new mongoose.Types.ObjectId(institutionId), name: 'Selected institution' };
+  let saveCalls = 0;
+  const user = {
+    _id: { toString: () => 'superadmin-id' },
+    role: 'superadmin',
+    institution: null,
+    institutions: [],
+    refreshTokenVersion: 0,
+    save: async () => { saveCalls += 1; },
+    toSafeJSON() { return { institution: this.institution }; },
+  };
+  process.env.JWT_ACCESS_SECRET = 'test-access-secret';
+  process.env.JWT_REFRESH_SECRET = 'test-refresh-secret';
+  Institution.findById = () => ({ lean: async () => institution });
+
+  const callSwitch = async (selectedId) => {
+    const response = {
+      cookie() {},
+      json(body) { this.body = body; },
+    };
+    await authController.switchInstitution(
+      { body: { institutionId: selectedId }, user },
+      response,
+      (error) => { throw error; }
+    );
+    return response.body;
+  };
+
+  try {
+    const selected = await callSwitch(institutionId);
+    assert.equal(verifyAccessToken(selected.accessToken).institution, institutionId);
+    assert.equal(selected.user.institution.toString(), institutionId);
+
+    const allInstitutions = await callSwitch(null);
+    assert.equal(verifyAccessToken(allInstitutions.accessToken).institution, null);
+    assert.equal(allInstitutions.user.institution, null);
+    assert.equal(saveCalls, 0);
+  } finally {
+    Institution.findById = originalFindById;
+    if (originalAccessSecret === undefined) delete process.env.JWT_ACCESS_SECRET;
+    else process.env.JWT_ACCESS_SECRET = originalAccessSecret;
+    if (originalRefreshSecret === undefined) delete process.env.JWT_REFRESH_SECRET;
+    else process.env.JWT_REFRESH_SECRET = originalRefreshSecret;
+  }
+});
+
+test('superadmin all-institutions access token overrides the account institution', async () => {
+  const User = require('../models/User');
+  const jwt = require('jsonwebtoken');
+  const { requireAuth } = require('../middleware/auth');
+  const originalFindById = User.findById;
+  const originalAccessSecret = process.env.JWT_ACCESS_SECRET;
+  const institutionId = '64f8ff7f2e7f6d0012345678';
+  process.env.JWT_ACCESS_SECRET = 'test-access-secret';
+
+  const user = {
+    role: 'superadmin',
+    active: true,
+    institution: { _id: institutionId },
+    institutions: [],
+  };
+  User.findById = () => ({ populate: async () => user });
+
+  try {
+    const token = jwt.sign({ sub: 'superadmin-id', institution: null }, process.env.JWT_ACCESS_SECRET);
+    const req = { headers: { authorization: `Bearer ${token}` } };
+    let middlewareError;
+    await requireAuth(req, {}, (error) => { middlewareError = error; });
+
+    assert.equal(middlewareError, undefined);
+    assert.equal(req.user.institution, null);
+    assert.equal(req.institution, null);
+  } finally {
+    User.findById = originalFindById;
+    if (originalAccessSecret === undefined) delete process.env.JWT_ACCESS_SECRET;
+    else process.env.JWT_ACCESS_SECRET = originalAccessSecret;
+  }
+});
+
+test('superadmin refresh keeps the all-institutions view without clearing account assignment', async () => {
+  const User = require('../models/User');
+  const authController = require('../controllers/authController');
+  const { signRefreshToken, verifyAccessToken } = require('../utils/tokens');
+  const originalFindById = User.findById;
+  const originalAccessSecret = process.env.JWT_ACCESS_SECRET;
+  const originalRefreshSecret = process.env.JWT_REFRESH_SECRET;
+  process.env.JWT_ACCESS_SECRET = 'test-access-secret';
+  process.env.JWT_REFRESH_SECRET = 'test-refresh-secret';
+
+  let saveCalls = 0;
+  const user = {
+    _id: 'superadmin-id',
+    role: 'superadmin',
+    active: true,
+    deletedAt: null,
+    refreshTokenVersion: 4,
+    institution: { _id: '64f8ff7f2e7f6d0012345678' },
+    institutions: [],
+    populate: async function populate() { return this; },
+    save: async () => { saveCalls += 1; },
+    toSafeJSON() { return { institution: this.institution }; },
+  };
+  User.findById = () => user;
+  const refreshToken = signRefreshToken({
+    _id: user._id,
+    refreshTokenVersion: user.refreshTokenVersion,
+    institution: null,
+    institutions: [],
+  });
+  const response = {
+    cookie() {},
+    json(body) { this.body = body; },
+  };
+
+  try {
+    await authController.refresh(
+      { cookies: { refresh_token: refreshToken } },
+      response,
+      (error) => { throw error; }
+    );
+
+    assert.equal(verifyAccessToken(response.body.accessToken).institution, null);
+    assert.equal(response.body.user.institution, null);
+    assert.equal(user.institution, null);
+    assert.equal(saveCalls, 0);
+  } finally {
+    User.findById = originalFindById;
+    if (originalAccessSecret === undefined) delete process.env.JWT_ACCESS_SECRET;
+    else process.env.JWT_ACCESS_SECRET = originalAccessSecret;
+    if (originalRefreshSecret === undefined) delete process.env.JWT_REFRESH_SECRET;
+    else process.env.JWT_REFRESH_SECRET = originalRefreshSecret;
+  }
 });
 
 test('invalid refresh tokens clear the stale refresh cookie', async () => {
@@ -631,19 +782,22 @@ test('tenant scopes fail closed when a non-superadmin has no active institution'
   assert.equal(ensureInstitutionAccess({ user: { role: 'admin' } }, { institution: null }), false);
 });
 
-test('superadmin scopes include all institutions unless a filter is requested', () => {
+test('superadmin data scopes use the selected institution unless another filter is requested', () => {
   const { scopeInstitution } = require('../utils/institutionScope');
   const institutionId = '64f8ff7f2e7f6d0012345678';
   const user = { role: 'superadmin', institution: institutionId };
 
-  assert.deepEqual(scopeInstitution({ user }, { status: 'available' }), { status: 'available' });
   assert.deepEqual(
-    scopeInstitution({ user, query: { institutionId } }, {}),
-    { institution: institutionId }
+    scopeInstitution({ user }, { status: 'available' }),
+    { status: 'available', institution: institutionId }
   );
   assert.deepEqual(
-    scopeInstitution({ user }, {}, { useCurrentInstitution: true }),
-    { institution: institutionId }
+    scopeInstitution({ user, query: { institutionId: '64f8ff7f2e7f6d0012345680' } }, {}),
+    { institution: '64f8ff7f2e7f6d0012345680' }
+  );
+  assert.deepEqual(
+    scopeInstitution({ user: { role: 'superadmin' } }, {}),
+    {}
   );
 });
 

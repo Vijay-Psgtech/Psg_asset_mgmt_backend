@@ -20,7 +20,7 @@ const scopeInstitution = (req, query = {}, options = {}) => {
   const scopedQuery = { ...(query || {}) };
   if (!req?.user) throw new ForbiddenError('Authentication required');
 
-  const { includeQueryInstitution = true, useCurrentInstitution = false } = options;
+  const { includeQueryInstitution = true, useCurrentInstitution = true } = options;
   if (req.user.role === 'superadmin') {
     const institutionId = includeQueryInstitution ? getInstitutionId(req, { useCurrentInstitution }) : null;
     if (institutionId) {
